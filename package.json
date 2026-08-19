@@ -1,0 +1,54 @@
+{
+  "name": "maja-player",
+  "version": "1.0.0",
+  "description": "Minimal AMOLED audiophile desktop music player",
+  "main": "dist/main/index.cjs",
+  "type": "module",
+  "scripts": {
+    "dev:renderer": "vite",
+    "dev:main": "esbuild src/main/index.ts src/preload/index.ts --outdir=dist --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs --out-extension:.js=.cjs",
+    "dev": "pnpm dev:main && concurrently -k \"pnpm dev:renderer\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build:main": "esbuild src/main/index.ts --outfile=dist/main/index.cjs --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs && esbuild src/preload/index.ts --outfile=dist/preload/index.cjs --bundle --platform=node --target=node20 --external:electron --format=cjs",
+    "build:renderer": "vite build",
+    "build": "rimraf dist && pnpm build:main && pnpm build:renderer",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "electron",
+    "music-player",
+    "flac",
+    "audiophile",
+    "amoled",
+    "react",
+    "typescript"
+  ],
+  "author": "MaJa",
+  "license": "MIT",
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
+    "music-metadata": "^11.14.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sql.js": "^1.14.1",
+    "tailwind-merge": "^3.6.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/sql.js": "^1.4.11",
+    "@vitejs/plugin-react": "^6.0.5",
+    "concurrently": "^10.0.4",
+    "cross-env": "^10.1.0",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "rimraf": "^6.1.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
+  }
+}
