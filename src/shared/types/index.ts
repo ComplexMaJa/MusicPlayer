@@ -63,6 +63,21 @@ export interface AudioFormatInfo {
   isBitPerfect: boolean;
 }
 
+export type LyricProviderOption = 'auto' | 'online' | 'embedded' | 'local';
+
+export interface LyricLine {
+  time: number; // in seconds
+  text: string;
+}
+
+export interface LyricsResult {
+  syncedLyrics: LyricLine[];
+  plainLyrics?: string;
+  source: 'local' | 'embedded' | 'online' | 'none';
+  availableSources?: ('local' | 'embedded' | 'online')[];
+  instrumental?: boolean;
+}
+
 export interface PlaybackState {
   isPlaying: boolean;
   isPaused: boolean;
@@ -122,6 +137,7 @@ export interface Settings {
   customBackgroundFit?: 'cover' | 'contain' | 'tile';
   reducedMotion: boolean;
   startMinimized: boolean;
+  lyricsProvider?: LyricProviderOption;
   lastPlayedTrackId?: string;
   lastPlayedPosition?: number;
 }

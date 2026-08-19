@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Play,
   Pause,
@@ -9,12 +9,19 @@ import {
   Heart,
   X,
   Disc,
+  Mic2,
+  Image as ImageIcon,
+  Maximize2,
+  Sparkles,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { FormatBadge } from './FormatBadge';
 import { ProgressBar } from './ProgressBar';
 import { VolumeSlider } from './VolumeSlider';
+import { LyricProviderOption } from '../../shared/types';
 
 export const NowPlayingDrawer: React.FC = () => {
   const {
@@ -28,6 +35,10 @@ export const NowPlayingDrawer: React.FC = () => {
     repeatMode,
     audioFormat,
     isNowPlayingDrawerOpen,
+    lyrics,
+    isLoadingLyrics,
+    activeLyricIndex,
+    activeLyricProvider,
     togglePlay,
     seek,
     setVolume,
@@ -37,60 +48,232 @@ export const NowPlayingDrawer: React.FC = () => {
     toggleShuffle,
     toggleRepeatMode,
     setNowPlayingDrawerOpen,
+    toggleCinemaMode,
+    setLyricProvider,
   } = usePlayerStore();
 
   const { toggleFavorite } = useLibraryStore();
+  const [activeTab, setActiveTab] = useState<'artwork' | 'lyrics'>('artwork');
+  const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
+  const activeLyricRef = useRef<HTMLDivElement | null>(null);
+  const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
+  const providerMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll active lyric into center view smoothly
+  useEffect(() => {
+    if (activeTab === 'lyrics' && activeLyricRef.current && lyricsContainerRef.current) {
+      activeLyricRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [activeLyricIndex, activeTab]);
 
   if (!isNowPlayingDrawerOpen || !currentTrack) return null;
 
+  const hasSyncedLyrics = Boolean(lyrics?.syncedLyrics && lyrics.syncedLyrics.length > 0);
+
   return (
-    <aside className="w-80 bg-[#050505] border-l border-[#1A1A1A] flex flex-col justify-between p-6 select-none shrink-0 relative z-10 animate-fadeIn">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[10px] font-semibold tracking-widest text-[#666666] uppercase font-mono">
-          NOW PLAYING
-        </h2>
-        <button
-          onClick={() => setNowPlayingDrawerOpen(false)}
-          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
-          title="Close panel"
-        >
-          <X className="w-4 h-4" />
-        </button>
+    <aside className="w-80 bg-[#050505] border-l border-[#1A1A1A] flex flex-col justify-between p-5 select-none shrink-0 relative z-10 animate-fadeIn">
+      {/* Header with Cinema Mode Launcher & View Switcher */}
+      <div className="flex items-center justify-between pb-3 border-b border-[#141414]">
+        <div className="flex items-center gap-1 bg-[#101010] p-0.5 rounded-lg border border-[#1E1E1E]">
+          <button
+            onClick={() => setActiveTab('artwork')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+              activeTab === 'artwork'
+                ? 'bg-[#202020] text-white shadow-sm'
+                : 'text-[#666666] hover:text-white'
+            }`}
+            title="Artwork View"
+          >
+            <ImageIcon className="w-3 h-3" />
+            <span>Artwork</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('lyrics')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer relative ${
+              activeTab === 'lyrics'
+                ? 'bg-[#202020] text-white shadow-sm'
+                : 'text-[#666666] hover:text-white'
+            }`}
+            title="Live Synced Lyrics"
+          >
+            <Mic2 className="w-3 h-3 text-[#FF2E55]" />
+            <span>Lyrics</span>
+            {hasSyncedLyrics && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#FF2E55] animate-pulse" />
+            )}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            onClick={toggleCinemaMode}
+            className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            title="Expand to Fullscreen Cinema Mode (F11)"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setNowPlayingDrawerOpen(false)}
+            className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            title="Close panel"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Large Artwork */}
-      <div className="my-auto flex flex-col items-center gap-6">
-        <div className="w-64 h-64 rounded-2xl overflow-hidden bg-[#0A0A0A] border border-[#1A1A1A] shadow-2xl relative group hover:border-[#2E2E2E] transition-all duration-300">
-          {currentTrack.artworkPath ? (
-            <img
-              src={currentTrack.artworkPath}
-              alt={currentTrack.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#101010] to-[#050505]">
-              <Disc className="w-16 h-16 text-[#FF2E55] opacity-80" />
+      {/* Main Content Area: Artwork View vs Lyrics View */}
+      <div className="my-auto flex flex-col items-center gap-5 w-full overflow-hidden">
+        {activeTab === 'artwork' ? (
+          /* Artwork View */
+          <div className="w-64 h-64 rounded-2xl overflow-hidden bg-[#0A0A0A] border border-[#1A1A1A] shadow-2xl relative group hover:border-[#2E2E2E] transition-all duration-300">
+            {currentTrack.artworkPath ? (
+              <img
+                src={currentTrack.artworkPath}
+                alt={currentTrack.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#101010] to-[#050505]">
+                <Disc className="w-16 h-16 text-[#FF2E55] opacity-80" />
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Live Synced Lyrics View */
+          <div className="w-full flex flex-col h-64">
+            {/* Provider Selector Mini Bar */}
+            <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-[#1A1A1A] relative" ref={providerMenuRef}>
+              <div className="flex items-center gap-1.5 text-[10px] font-mono text-[#888888]">
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{ backgroundColor: 'var(--accent-color, #FF2E55)' }}
+                />
+                <span>SYNCHRONIZED</span>
+              </div>
+              <button
+                onClick={() => setIsProviderMenuOpen(!isProviderMenuOpen)}
+                className="text-[9px] font-mono tracking-wider text-[#8A8A95] hover:text-white bg-[#141418] hover:bg-[#202028] px-2 py-0.5 rounded-md border border-[#252530] uppercase flex items-center gap-1 transition-all cursor-pointer"
+                title="Select Lyric Provider"
+              >
+                <span>
+                  {activeLyricProvider !== 'auto'
+                    ? activeLyricProvider.toUpperCase()
+                    : lyrics?.source
+                    ? lyrics.source.toUpperCase()
+                    : 'AUTO'}
+                </span>
+                <ChevronDown className="w-2.5 h-2.5 text-[#666675]" />
+              </button>
+
+              {isProviderMenuOpen && (
+                <div className="absolute right-0 top-7 w-44 bg-[#101014] border border-[#262632] rounded-xl shadow-2xl py-1 z-50 animate-fadeIn backdrop-blur-xl">
+                  {(['auto', 'online', 'embedded', 'local'] as const).map((prov) => (
+                    <button
+                      key={prov}
+                      onClick={() => {
+                        setLyricProvider(prov);
+                        setIsProviderMenuOpen(false);
+                      }}
+                      className={`w-full px-2.5 py-1.5 text-left text-[11px] flex items-center justify-between transition-colors cursor-pointer ${
+                        activeLyricProvider === prov
+                          ? 'text-white font-bold bg-[#1E1E28]'
+                          : 'text-[#9595A5] hover:text-white hover:bg-[#161620]'
+                      }`}
+                    >
+                      <span className="capitalize">
+                        {prov === 'auto'
+                          ? '⚡ Auto'
+                          : prov === 'online'
+                          ? '🌐 LRCLIB'
+                          : prov === 'embedded'
+                          ? '🏷️ Embedded'
+                          : '📁 Local'}
+                      </span>
+                      {activeLyricProvider === prov && (
+                        <Check className="w-3 h-3 text-[var(--accent-color,#FF2E55)]" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+
+            <div
+              ref={lyricsContainerRef}
+              className="flex-1 overflow-y-auto px-2 py-2 flex flex-col gap-3 text-center no-scrollbar mask-gradient"
+            >
+              {isLoadingLyrics ? (
+                <div className="h-full flex flex-col items-center justify-center gap-2 text-xs text-[#666666] animate-pulse">
+                  <Sparkles className="w-5 h-5 text-[#FF2E55] animate-spin-slow" />
+                  <span>Finding synchronized lyrics...</span>
+                </div>
+              ) : hasSyncedLyrics ? (
+                lyrics!.syncedLyrics.map((line, idx) => {
+                  const isActive = idx === activeLyricIndex;
+                  const isPast = activeLyricIndex !== -1 && idx < activeLyricIndex;
+                  return (
+                    <div
+                      key={idx}
+                      ref={isActive ? activeLyricRef : null}
+                      onClick={() => seek(line.time)}
+                      className={`py-1.5 px-3 rounded-xl transition-all duration-300 cursor-pointer font-medium select-none ${
+                        isActive
+                          ? 'text-white text-sm font-bold scale-105 shadow-md shadow-black/40'
+                          : isPast
+                          ? 'text-[#444444] text-xs hover:text-[#777777]'
+                          : 'text-[#666666] text-xs hover:text-white hover:scale-102'
+                      }`}
+                      style={
+                        isActive
+                          ? {
+                              color: 'var(--accent-color, #FF2E55)',
+                              textShadow: '0 0 12px var(--accent-glow, rgba(255, 46, 85, 0.5))',
+                              backgroundColor: 'rgba(255, 255, 255, 0.04)',
+                            }
+                          : undefined
+                      }
+                    >
+                      {line.text || '♪'}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center gap-2 text-xs text-[#666666] px-4">
+                  <Mic2 className="w-6 h-6 opacity-40 text-[#A3A3A3]" />
+                  <p className="font-medium text-center text-[#888888] leading-relaxed">
+                    {lyrics?.plainLyrics || 'No synchronized lyrics found.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Track Title & Artist */}
         <div className="w-full flex items-center justify-between">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold text-white truncate">{currentTrack.title}</h3>
+            <h3 className="text-sm font-bold text-white truncate">{currentTrack.title}</h3>
             <p className="text-xs text-[#A3A3A3] truncate">{currentTrack.artist}</p>
-            <p className="text-[11px] text-[#666666] truncate mt-0.5">{currentTrack.album}</p>
+            <p className="text-[10px] text-[#666666] truncate mt-0.5">{currentTrack.album}</p>
           </div>
           <button
             onClick={() => toggleFavorite(currentTrack.id)}
-            className="text-[#666666] hover:text-[#FF2E55] p-2 rounded-full hover:bg-[#151515] transition-all duration-200 active:scale-125 shrink-0 group/fav"
+            className="text-[#666666] hover:text-accent p-2 rounded-full hover:bg-[#151515] transition-all duration-200 active:scale-125 shrink-0 group/fav cursor-pointer"
             title="Favorite"
           >
             <Heart
-              className={`w-5 h-5 transition-all duration-200 ${
-                currentTrack.isFavorite ? 'fill-[#FF2E55] text-[#FF2E55] scale-105' : 'group-hover/fav:scale-110'
+              className={`w-4 h-4 transition-all duration-200 ${
+                currentTrack.isFavorite ? 'scale-105' : 'group-hover/fav:scale-110'
               }`}
+              style={
+                currentTrack.isFavorite
+                  ? { fill: 'var(--accent-color, #FF2E55)', color: 'var(--accent-color, #FF2E55)' }
+                  : undefined
+              }
             />
           </button>
         </div>
@@ -103,27 +286,37 @@ export const NowPlayingDrawer: React.FC = () => {
           <FormatBadge format={audioFormat} codec={currentTrack.codec} />
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center gap-6 my-2">
+        {/* Playback Controls */}
+        <div className="flex items-center gap-5 my-1">
           <button
             onClick={toggleShuffle}
-            className={`p-2 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 ${
-              isShuffle ? 'text-[#FF2E55] bg-[#FF2E55]/10' : 'text-[#666666] hover:text-white hover:bg-[#151515]'
-            }`}
+            className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
+            style={
+              isShuffle
+                ? {
+                    color: 'var(--accent-color, #FF2E55)',
+                    backgroundColor: 'var(--accent-glow, rgba(255, 46, 85, 0.15))',
+                  }
+                : { color: '#666666' }
+            }
             title="Shuffle"
           >
             <Shuffle className="w-4 h-4" />
           </button>
           <button
             onClick={previousTrack}
-            className="text-[#EDEDED] hover:text-white p-2 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Previous"
           >
-            <SkipBack className="w-5 h-5" />
+            <SkipBack className="w-4 h-4" />
           </button>
           <button
             onClick={togglePlay}
-            className="w-12 h-12 rounded-full bg-[#FF2E55] hover:bg-[#FF4568] flex items-center justify-center text-white transition-all duration-200 shadow-lg shadow-[#FF2E55]/30 hover:shadow-xl hover:shadow-[#FF2E55]/50 hover:scale-105 active:scale-95 cursor-pointer"
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-lg"
+            style={{
+              backgroundColor: 'var(--accent-color, #FF2E55)',
+              boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.45))',
+            }}
             title={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
@@ -134,16 +327,22 @@ export const NowPlayingDrawer: React.FC = () => {
           </button>
           <button
             onClick={nextTrack}
-            className="text-[#EDEDED] hover:text-white p-2 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Next"
           >
-            <SkipForward className="w-5 h-5" />
+            <SkipForward className="w-4 h-4" />
           </button>
           <button
             onClick={toggleRepeatMode}
-            className={`p-2 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 ${
-              repeatMode !== 'off' ? 'text-[#FF2E55] bg-[#FF2E55]/10' : 'text-[#666666] hover:text-white hover:bg-[#151515]'
-            }`}
+            className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
+            style={
+              repeatMode !== 'off'
+                ? {
+                    color: 'var(--accent-color, #FF2E55)',
+                    backgroundColor: 'var(--accent-glow, rgba(255, 46, 85, 0.15))',
+                  }
+                : { color: '#666666' }
+            }
             title={`Repeat: ${repeatMode}`}
           >
             <Repeat className="w-4 h-4" />
@@ -151,7 +350,7 @@ export const NowPlayingDrawer: React.FC = () => {
         </div>
 
         {/* Volume */}
-        <div className="w-full px-4">
+        <div className="w-full px-2">
           <VolumeSlider
             volume={volume}
             isMuted={isMuted}
@@ -164,3 +363,4 @@ export const NowPlayingDrawer: React.FC = () => {
     </aside>
   );
 };
+

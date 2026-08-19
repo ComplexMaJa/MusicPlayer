@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Track, AudioFormatInfo } from '../../shared/types';
+import { Track, AudioFormatInfo, LyricsResult, LyricProviderOption } from '../../shared/types';
 
 interface PlayerStoreState {
   currentTrack: Track | null;
@@ -15,6 +15,11 @@ interface PlayerStoreState {
   isShuffle: boolean;
   audioFormat: AudioFormatInfo | null;
   isNowPlayingDrawerOpen: boolean;
+  isCinemaModeOpen: boolean;
+  lyrics: LyricsResult | null;
+  isLoadingLyrics: boolean;
+  activeLyricIndex: number;
+  activeLyricProvider: LyricProviderOption;
 
   // Actions
   playTrack: (track: Track, newQueue?: Track[]) => void;
@@ -35,11 +40,16 @@ interface PlayerStoreState {
   toggleShuffle: () => void;
   toggleNowPlayingDrawer: () => void;
   setNowPlayingDrawerOpen: (open: boolean) => void;
-  initFromSettings: (volume: number, isMuted?: boolean) => void;
+  toggleCinemaMode: () => void;
+  setCinemaModeOpen: (open: boolean) => void;
+  setLyricProvider: (provider: LyricProviderOption) => Promise<void>;
+  initFromSettings: (volume: number, isMuted?: boolean, lyricsProvider?: LyricProviderOption) => void;
 }
 
 const audio = new Audio();
 audio.preload = 'auto';
+
+export const getAudioElement = (): HTMLAudioElement => audio;
 
 let volumePersistTimer: NodeJS.Timeout | null = null;
 const persistVolumeState = (volume: number, isMuted: boolean) => {
@@ -53,7 +63,24 @@ const persistVolumeState = (volume: number, isMuted: boolean) => {
 
 export const usePlayerStore = create<PlayerStoreState>((set, get) => {
   audio.ontimeupdate = () => {
-    set({ currentTime: audio.currentTime });
+    const time = audio.currentTime;
+    const { lyrics, activeLyricIndex: prevIndex } = get();
+    let newIndex = -1;
+
+    if (lyrics?.syncedLyrics && lyrics.syncedLyrics.length > 0) {
+      for (let i = lyrics.syncedLyrics.length - 1; i >= 0; i--) {
+        if (time >= lyrics.syncedLyrics[i].time - 0.25) {
+          newIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (newIndex !== prevIndex) {
+      set({ currentTime: time, activeLyricIndex: newIndex });
+    } else {
+      set({ currentTime: time });
+    }
   };
 
   audio.onloadedmetadata = () => {
@@ -89,9 +116,14 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     isShuffle: false,
     audioFormat: null,
     isNowPlayingDrawerOpen: false,
+    isCinemaModeOpen: false,
+    lyrics: null,
+    isLoadingLyrics: false,
+    activeLyricIndex: -1,
+    activeLyricProvider: 'auto',
 
     playTrack: async (track: Track, newQueue?: Track[]) => {
-      const { queue, isMuted, volume } = get();
+      const { queue, isMuted, volume, activeLyricProvider } = get();
       let updatedQueue = newQueue || (queue.length > 0 ? queue : [track]);
       let newIndex = updatedQueue.findIndex((t) => t.id === track.id);
       if (newIndex === -1) {
@@ -110,6 +142,9 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         queueIndex: newIndex,
         currentTime: 0,
         duration: track.duration,
+        lyrics: null,
+        isLoadingLyrics: true,
+        activeLyricIndex: -1,
       });
 
       audio.src = streamUrl;
@@ -125,6 +160,18 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
             set({ audioFormat: format });
           });
           window.electronAPI.updateDiscordPresence(track, true, 0);
+
+          // Fetch lyrics asynchronously using active provider
+          window.electronAPI.getLyrics(track, activeLyricProvider).then((lyricsResult) => {
+            if (get().currentTrack?.id === track.id) {
+              set({ lyrics: lyricsResult, isLoadingLyrics: false });
+            }
+          }).catch((err) => {
+            console.warn('Failed to load lyrics:', err);
+            if (get().currentTrack?.id === track.id) {
+              set({ isLoadingLyrics: false });
+            }
+          });
         }
       } catch (err) {
         console.error('Audio play() failed:', err);
@@ -177,8 +224,17 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       const safeSeconds = Math.max(0, Math.min(seconds, targetDuration - 0.3));
       try {
         audio.currentTime = safeSeconds;
-        set({ currentTime: safeSeconds });
-        const { currentTrack, isPlaying } = get();
+        const { currentTrack, isPlaying, lyrics } = get();
+        let newIndex = -1;
+        if (lyrics?.syncedLyrics && lyrics.syncedLyrics.length > 0) {
+          for (let i = lyrics.syncedLyrics.length - 1; i >= 0; i--) {
+            if (safeSeconds >= lyrics.syncedLyrics[i].time - 0.25) {
+              newIndex = i;
+              break;
+            }
+          }
+        }
+        set({ currentTime: safeSeconds, activeLyricIndex: newIndex });
         if (currentTrack && isPlaying && window.electronAPI) {
           window.electronAPI.updateDiscordPresence(currentTrack, true, safeSeconds);
         }
@@ -297,11 +353,43 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       set({ isNowPlayingDrawerOpen: open });
     },
 
-    initFromSettings: (volume: number, isMuted?: boolean) => {
+    toggleCinemaMode: () => {
+      set((state) => ({ isCinemaModeOpen: !state.isCinemaModeOpen }));
+    },
+
+    setCinemaModeOpen: (open: boolean) => {
+      set({ isCinemaModeOpen: open });
+    },
+
+    setLyricProvider: async (provider: LyricProviderOption) => {
+      set({ activeLyricProvider: provider, isLoadingLyrics: true });
+      const { currentTrack } = get();
+      if (currentTrack && window.electronAPI) {
+        try {
+          const lyricsResult = await window.electronAPI.getLyrics(currentTrack, provider);
+          if (get().currentTrack?.id === currentTrack.id) {
+            set({ lyrics: lyricsResult, isLoadingLyrics: false });
+          }
+        } catch (err) {
+          console.warn('Failed to switch lyric provider:', err);
+          if (get().currentTrack?.id === currentTrack.id) {
+            set({ isLoadingLyrics: false });
+          }
+        }
+      } else {
+        set({ isLoadingLyrics: false });
+      }
+    },
+
+    initFromSettings: (volume: number, isMuted?: boolean, lyricsProvider?: LyricProviderOption) => {
       const safeVol = typeof volume === 'number' && !isNaN(volume) ? Math.max(0, Math.min(1, volume)) : 0.8;
       const muted = Boolean(isMuted);
       audio.volume = muted ? 0 : safeVol;
-      set({ volume: safeVol, isMuted: muted });
+      set({
+        volume: safeVol,
+        isMuted: muted,
+        activeLyricProvider: lyricsProvider || 'auto',
+      });
     },
   };
 });

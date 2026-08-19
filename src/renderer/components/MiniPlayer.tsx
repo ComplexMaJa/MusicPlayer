@@ -10,6 +10,8 @@ import {
   List,
   Maximize2,
   Disc,
+  Mic2,
+  Tv,
 } from 'lucide-react';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
@@ -37,6 +39,7 @@ export const MiniPlayer: React.FC = () => {
     toggleShuffle,
     toggleRepeatMode,
     toggleNowPlayingDrawer,
+    toggleCinemaMode,
   } = usePlayerStore();
 
   const { toggleFavorite, setActiveView } = useLibraryStore();
@@ -173,16 +176,23 @@ export const MiniPlayer: React.FC = () => {
           onToggleMute={toggleMute}
         />
         <button
+          onClick={toggleNowPlayingDrawer}
+          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
+          title="Side Panel (Artwork & Lyrics)"
+        >
+          <Mic2 className="w-4 h-4" />
+        </button>
+        <button
           onClick={() => setActiveView('queue')}
-          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
           title="Queue"
         >
           <List className="w-4 h-4" />
         </button>
         <button
-          onClick={toggleNowPlayingDrawer}
-          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
-          title="Toggle Now Playing Panel"
+          onClick={toggleCinemaMode}
+          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
+          title="Fullscreen Ambient Cinema Mode (F11)"
         >
           <Maximize2 className="w-4 h-4" />
         </button>

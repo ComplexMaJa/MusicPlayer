@@ -21,6 +21,8 @@ import {
   Layers,
   X,
   Plus,
+  Mic2,
+  Globe,
 } from 'lucide-react';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
@@ -256,11 +258,85 @@ export const SettingsPage: React.FC = () => {
           {activeCategory === 'playback' && (
             <div className="flex flex-col gap-6 animate-fadeIn">
               <div>
-                <h3 className="text-sm font-bold text-white mb-1">Playback & Volume</h3>
-                <p className="text-xs text-[#666666]">Manage gain processing and start preferences.</p>
+                <h3 className="text-sm font-bold text-white mb-1">Playback & Lyrics</h3>
+                <p className="text-xs text-[#666666]">Manage gain processing and default lyric provider sources.</p>
               </div>
 
-              <div className="flex flex-col gap-5">
+              {/* Lyrics Engine Provider Selection Card */}
+              <div className="bg-[#101010] border border-[#1A1A1A] rounded-xl p-5 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                      style={{
+                        backgroundColor: 'var(--accent-glow, rgba(255, 46, 85, 0.2))',
+                        color: 'var(--accent-color, #FF2E55)',
+                      }}
+                    >
+                      <Mic2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                        LYRICS ENGINE & PROVIDER
+                      </h4>
+                      <p className="text-[11px] text-[#777777]">
+                        Choose your default lyrics source for synchronized karaoke and cinema mode.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  {[
+                    {
+                      id: 'auto',
+                      title: '⚡ Auto (Smart Priority)',
+                      desc: 'Automatically finds the best timestamped synced lyrics (Local → Embedded → LRCLIB Online).',
+                    },
+                    {
+                      id: 'online',
+                      title: '🌐 LRCLIB (Online Synced)',
+                      desc: 'Queries open-source LRCLIB database with smart title cleaning for accurate karaoke sync.',
+                    },
+                    {
+                      id: 'embedded',
+                      title: '🏷️ Embedded Audio Tag',
+                      desc: 'Reads embedded USLT/SYLT/lyrics metadata tags stored directly inside audio files.',
+                    },
+                    {
+                      id: 'local',
+                      title: '📁 Local File (.lrc)',
+                      desc: 'Loads .lrc files located in the same directory as your song files.',
+                    },
+                  ].map((prov) => {
+                    const isSelected = (settings.lyricsProvider || 'auto') === prov.id;
+                    return (
+                      <button
+                        key={prov.id}
+                        onClick={() => handleUpdate({ lyricsProvider: prov.id as any })}
+                        className={`p-3.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-150 cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#181820] border-[var(--accent-color,#FF2E55)] shadow-md'
+                            : 'bg-[#121214] border-[#222226] hover:border-[#35353C]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-bold text-white">{prov.title}</span>
+                          {isSelected && (
+                            <Check
+                              className="w-4 h-4 shrink-0"
+                              style={{ color: 'var(--accent-color, #FF2E55)' }}
+                            />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-[#7A7A85] leading-relaxed">{prov.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-5 pt-2">
                 <ToggleSwitch
                   label="Normalize Volume (Gain Normalization)"
                   description="Applies peak normalization across tracks. Disabled by default for pure audiophile neutrality."

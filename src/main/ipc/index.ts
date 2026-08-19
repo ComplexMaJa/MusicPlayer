@@ -22,8 +22,9 @@ import {
 import { scanFolders } from '../library';
 import { folderWatcher } from '../library/watcher';
 import { getAudioFormatInfo } from '../audio';
+import { getLyricsForTrack } from '../lyrics';
 import { updatePresence, clearPresence, initDiscordRPC, setDiscordClientId } from '../discord';
-import { Settings } from '../../shared/types';
+import { Settings, Track, LyricProviderOption } from '../../shared/types';
 import { DEFAULT_SETTINGS } from '../../shared/constants';
 
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
@@ -173,6 +174,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
     return info;
   });
+
+  // Lyrics Engine
+  ipcMain.handle('lyrics:getForTrack', async (_event, track: Track, provider?: LyricProviderOption) =>
+    getLyricsForTrack(track, provider || (currentSettings.lyricsProvider as LyricProviderOption) || 'auto')
+  );
 
   // Settings
   ipcMain.handle('settings:get', async () => currentSettings);

@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   customBackgroundFit: 'cover',
   reducedMotion: false,
   startMinimized: false,
+  lyricsProvider: 'auto',
 };
 
 export const SUPPORTED_EXTENSIONS = ['.flac', '.mp3', '.wav', '.ogg'];

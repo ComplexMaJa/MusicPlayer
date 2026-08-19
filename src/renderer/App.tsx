@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { MiniPlayer } from './components/MiniPlayer';
 import { NowPlayingDrawer } from './components/NowPlayingDrawer';
+import { CinemaMode } from './components/CinemaMode';
 
 import { Home } from './pages/Home';
 import { Library } from './pages/Library';
@@ -117,6 +118,9 @@ export const App: React.FC = () => {
       <div className="relative z-20">
         <MiniPlayer />
       </div>
+
+      {/* Fullscreen Ambient Cinema Mode Overlay */}
+      <CinemaMode />
     </div>
   );
 };

@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { Track, Album, Artist, Playlist, Settings, ScanProgress, LibraryStats, AudioFormatInfo } from '../shared/types';
+import {
+  Track,
+  Album,
+  Artist,
+  Playlist,
+  Settings,
+  ScanProgress,
+  LibraryStats,
+  AudioFormatInfo,
+  LyricsResult,
+  LyricProviderOption,
+} from '../shared/types';
 
 export const electronAPI = {
   // Folder & Scanning
@@ -43,6 +54,8 @@ export const electronAPI = {
     ipcRenderer.invoke('audio:getFormat', filePath),
   readAudioStreamUrl: (filePath: string): string =>
     `maja-audio://stream?path=${encodeURIComponent(filePath)}`,
+  getLyrics: (track: Track, provider?: LyricProviderOption): Promise<LyricsResult | null> =>
+    ipcRenderer.invoke('lyrics:getForTrack', track, provider),
 
   // Settings
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
