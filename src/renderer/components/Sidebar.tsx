@@ -48,7 +48,7 @@ export const Sidebar: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xs font-bold tracking-widest text-white uppercase">MAJA PLAYER</h1>
-            <p className="text-[9px] tracking-wider text-[#666666] uppercase font-mono">DESIGN SYSTEM</p>
+            <p className="text-[9px] tracking-wider text-[#666666] uppercase font-mono">MUSIC PLAYER</p>
           </div>
         </div>
 
