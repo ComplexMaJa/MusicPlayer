@@ -46,7 +46,7 @@ export const MiniPlayer: React.FC = () => {
 
   if (!currentTrack) {
     return (
-      <div className="h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between text-xs text-[#666666] select-none shrink-0">
+      <div className="mini-player-bar h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between text-xs text-[#666666] select-none shrink-0 transition-colors duration-300">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded bg-[#0A0A0A] border border-[#1A1A1A] flex items-center justify-center">
             <Disc className="w-5 h-5 text-[#333333]" />
@@ -61,9 +61,9 @@ export const MiniPlayer: React.FC = () => {
   }
 
   return (
-    <div className="h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between select-none shrink-0 relative z-20">
+    <div className="mini-player-bar h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between select-none shrink-0 relative z-20 transition-colors duration-300">
       {/* Left Track Info */}
-      <div className="flex items-center gap-3 w-1/4 min-w-[200px]">
+      <div className="flex items-center gap-3 flex-1 min-w-[220px] max-w-sm">
         <div className="relative w-12 h-12 rounded overflow-hidden bg-[#0A0A0A] border border-[#1A1A1A] shrink-0 group">
           {currentTrack.artworkPath ? (
             <img
@@ -73,17 +73,20 @@ export const MiniPlayer: React.FC = () => {
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#101010] to-[#050505]">
-              <Disc className="w-5 h-5 text-[#FF2E55]" />
+              <Disc className="w-5 h-5 text-accent" />
             </div>
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-white truncate">{currentTrack.title}</p>
+        <div className="min-w-0 flex-1 flex flex-col justify-center">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-xs font-medium text-white truncate">{currentTrack.title}</p>
+            <FormatBadge format={audioFormat} codec={currentTrack.codec} />
+          </div>
           <p className="text-[11px] text-[#A3A3A3] truncate">{currentTrack.artist}</p>
         </div>
         <button
           onClick={() => toggleFavorite(currentTrack.id)}
-          className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav"
+          className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav shrink-0"
           title="Favorite"
         >
           <Heart
@@ -100,7 +103,7 @@ export const MiniPlayer: React.FC = () => {
       </div>
 
       {/* Center Controls & Progress */}
-      <div className="flex flex-col items-center gap-1.5 w-2/4 max-w-xl px-4">
+      <div className="flex flex-col items-center gap-1.5 w-full max-w-lg px-4 shrink-0">
         <div className="flex items-center gap-4">
           <button
             onClick={toggleShuffle}
@@ -126,7 +129,7 @@ export const MiniPlayer: React.FC = () => {
           </button>
           <button
             onClick={togglePlay}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-lg"
             style={{
               backgroundColor: 'var(--accent-color, #FF2E55)',
               boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.45))',
@@ -167,8 +170,7 @@ export const MiniPlayer: React.FC = () => {
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center justify-end gap-4 w-1/4 min-w-[200px]">
-        <FormatBadge format={audioFormat} codec={currentTrack.codec} />
+      <div className="flex items-center justify-end gap-3.5 flex-1 min-w-[200px] shrink-0">
         <VolumeSlider
           volume={volume}
           isMuted={isMuted}

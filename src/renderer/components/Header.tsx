@@ -20,13 +20,19 @@ export const Header: React.FC = () => {
     <header className="h-14 bg-[#050505] border-b border-[#1A1A1A] px-6 flex items-center justify-between select-none app-drag-region shrink-0">
       {/* Search Input Box */}
       <div className="relative w-80 app-no-drag group">
-        <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666] group-focus-within:text-[#FF2E55] transition-colors duration-200" />
+        <Search
+          className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666] transition-colors duration-200"
+          style={{ color: searchQuery ? 'var(--accent-color, #FF2E55)' : undefined }}
+        />
         <input
           type="text"
           value={searchQuery}
           onChange={handleSearchChange}
           placeholder="Search for songs, artists, albums..."
-          className="w-full bg-[#0A0A0A] border border-[#1A1A1A] focus:border-[#FF2E55] focus:shadow-md focus:shadow-[#FF2E55]/10 rounded-full py-1.5 pl-10 pr-4 text-xs text-[#EDEDED] placeholder-[#666666] outline-none transition-all duration-200"
+          style={{
+            borderColor: searchQuery ? 'var(--accent-color, #FF2E55)' : undefined,
+          }}
+          className="w-full bg-[#0A0A0A] border border-[#1A1A1A] rounded-full py-1.5 pl-10 pr-4 text-xs text-[#EDEDED] placeholder-[#666666] outline-none transition-all duration-200"
         />
       </div>
 
@@ -34,7 +40,13 @@ export const Header: React.FC = () => {
       <div className="flex items-center gap-4 app-no-drag">
         {/* User Pill */}
         <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#0A0A0A] border border-[#1A1A1A] hover:border-[#2E2E2E] transition-colors cursor-default">
-          <div className="w-5 h-5 rounded-full bg-[#FF2E55] flex items-center justify-center text-[10px] font-bold text-white shadow-sm shadow-[#FF2E55]/50">
+          <div
+            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-colors duration-300"
+            style={{
+              backgroundColor: 'var(--accent-color, #FF2E55)',
+              boxShadow: '0 0 10px var(--accent-glow, rgba(255, 46, 85, 0.5))',
+            }}
+          >
             M
           </div>
           <span className="text-xs font-medium text-[#EDEDED]">MaJa</span>

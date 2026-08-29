@@ -57,7 +57,11 @@ export const Queue: React.FC = () => {
           </button>
           <button
             onClick={handleSaveAsPlaylist}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FF2E55] hover:bg-[#FF4568] text-white text-xs font-medium shadow-md shadow-[#FF2E55]/30 hover:shadow-lg hover:shadow-[#FF2E55]/50 transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-white text-xs font-medium shadow-md transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
+            style={{
+              backgroundColor: 'var(--accent-color, #FF2E55)',
+              boxShadow: '0 0 14px var(--accent-glow, rgba(255, 46, 85, 0.35))',
+            }}
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Save as Playlist</span>
@@ -68,10 +72,18 @@ export const Queue: React.FC = () => {
       {/* Currently Playing Card */}
       {currentTrack && activeTab === 'queue' && (
         <div className="flex flex-col gap-2">
-          <h3 className="text-[10px] font-semibold text-[#FF2E55] uppercase tracking-widest font-mono">
+          <h3
+            className="text-[10px] font-semibold uppercase tracking-widest font-mono transition-colors"
+            style={{ color: 'var(--accent-color, #FF2E55)' }}
+          >
             NOW PLAYING
           </h3>
-          <div className="bg-[#0A0A0A] border border-[#FF2E55]/30 p-4 rounded-xl flex items-center justify-between">
+          <div
+            className="bg-[#0A0A0A] border p-4 rounded-xl flex items-center justify-between"
+            style={{
+              borderColor: 'var(--accent-glow, rgba(255, 46, 85, 0.3))',
+            }}
+          >
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded overflow-hidden bg-[#101010] shrink-0 border border-[#1A1A1A]">
                 {currentTrack.artworkPath ? (
@@ -82,7 +94,7 @@ export const Queue: React.FC = () => {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <Disc className="w-4 h-4 text-[#FF2E55]" />
+                    <Disc className="w-4 h-4" style={{ color: 'var(--accent-color, #FF2E55)' }} />
                   </div>
                 )}
               </div>
@@ -91,7 +103,12 @@ export const Queue: React.FC = () => {
                 <p className="text-[11px] text-[#A3A3A3]">{currentTrack.artist}</p>
               </div>
             </div>
-            <span className="text-xs font-mono text-[#FF2E55]">PLAYING</span>
+            <span
+              className="text-xs font-mono font-bold"
+              style={{ color: 'var(--accent-color, #FF2E55)' }}
+            >
+              PLAYING
+            </span>
           </div>
         </div>
       )}
@@ -126,7 +143,7 @@ export const Queue: React.FC = () => {
                       )}
                     </div>
                     <div>
-                      <p className="font-medium text-white group-hover:text-[#FF2E55] transition-colors">
+                      <p className="font-medium text-white group-hover:text-accent transition-colors">
                         {track.title}
                       </p>
                       <p className="text-[11px] text-[#A3A3A3]">{track.artist}</p>
@@ -159,7 +176,7 @@ export const Queue: React.FC = () => {
               <div
                 key={`${track.id}-${idx}`}
                 onClick={() => playTrack(track)}
-                className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-[#FF2E55]/30 hover:shadow-lg hover:shadow-[#FF2E55]/5 hover:-translate-y-0.5 p-3 rounded-xl flex items-center justify-between text-xs transition-all duration-150 group cursor-pointer"
+                className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-3 rounded-xl flex items-center justify-between text-xs transition-all duration-150 group cursor-pointer hover:-translate-y-0.5"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#101010] shrink-0 group-hover:scale-105 transition-transform">
@@ -176,7 +193,7 @@ export const Queue: React.FC = () => {
                     )}
                   </div>
                   <div>
-                    <p className="font-medium text-white group-hover:text-[#FF2E55] transition-colors">
+                    <p className="font-medium text-white group-hover:text-accent transition-colors">
                       {track.title}
                     </p>
                     <p className="text-[11px] text-[#A3A3A3]">{track.artist}</p>

@@ -37,9 +37,17 @@ export const Search: React.FC = () => {
               onClick={() => setActiveTab(tab.id as any)}
               className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer ${
                 activeTab === tab.id
-                  ? 'bg-[#FF2E55] text-white shadow-md shadow-[#FF2E55]/30'
+                  ? 'text-white shadow-md'
                   : 'bg-[#0A0A0A] text-[#A3A3A3] hover:text-white border border-[#1A1A1A] hover:border-[#2E2E2E]'
               }`}
+              style={
+                activeTab === tab.id
+                  ? {
+                      backgroundColor: 'var(--accent-color, #FF2E55)',
+                      boxShadow: '0 0 12px var(--accent-glow, rgba(255, 46, 85, 0.35))',
+                    }
+                  : undefined
+              }
             >
               {tab.label}
             </button>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
 import {
   Play,
   Pause,
@@ -20,15 +20,104 @@ import { usePlayerStore, getAudioElement } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { FormatBadge } from './FormatBadge';
-import { ProgressBar } from './ProgressBar';
+import { CinemaVisualizer } from './CinemaVisualizer';
 import { LyricProviderOption } from '../../shared/types';
 import { extractPaletteFromImage, getFallbackPalette, ExtractedPalette } from '../utils/colorExtractor';
-import { processLyricsForKaraoke, getWordProgress, ProcessedKaraokeLine } from '../utils/karaokeEngine';
-import { getAudioEnergy } from '../utils/audioReactivity';
+import {
+  processLyricsForKaraoke,
+  findActiveLineIndex,
+  getWordProgress,
+  ProcessedKaraokeLine,
+} from '../utils/karaokeEngine';
 
 /**
- * Isolated, high-performance Active Karaoke Line component
- * Runs local RAF loop ONLY for the currently singing line so parent CinemaMode never lags
+ * Isolated High-Performance Seekbar for Cinema Mode
+ * Tracks time smoothly without forcing parent CinemaMode re-renders
+ */
+const CinemaProgressBar: React.FC<{ duration: number; onSeek: (seconds: number) => void }> = memo(
+  ({ duration, onSeek }) => {
+    const [currentTime, setCurrentTime] = useState(0);
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragValue, setDragValue] = useState(0);
+
+    useEffect(() => {
+      let rafId: number;
+      const tick = () => {
+        const audioEl = getAudioElement();
+        if (audioEl && !isDragging) {
+          setCurrentTime(audioEl.currentTime);
+        }
+        rafId = requestAnimationFrame(tick);
+      };
+      rafId = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(rafId);
+    }, [isDragging]);
+
+    const displayTime = isDragging ? dragValue : currentTime;
+    const percentage = duration > 0 ? (displayTime / duration) * 100 : 0;
+
+    const formatTime = (secs: number) => {
+      if (!secs || isNaN(secs)) return '0:00';
+      const m = Math.floor(secs / 60);
+      const s = Math.floor(secs % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    };
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const pct = parseFloat(e.target.value);
+      const targetSeconds = (pct / 100) * duration;
+      setDragValue(targetSeconds);
+      if (!isDragging) {
+        onSeek(targetSeconds);
+      }
+    };
+
+    const handleMouseDown = () => setIsDragging(true);
+
+    const handleMouseUp = (e: React.MouseEvent<HTMLInputElement>) => {
+      const targetSeconds = (parseFloat(e.currentTarget.value) / 100) * duration;
+      onSeek(targetSeconds);
+      setIsDragging(false);
+    };
+
+    return (
+      <div className="flex items-center gap-3 w-full text-xs font-mono text-[#888888]">
+        <span className="w-9 text-right shrink-0 select-none">{formatTime(displayTime)}</span>
+        <div className="relative flex-1 flex items-center h-4 group cursor-pointer">
+          <div className="w-full h-1 group-hover:h-1.5 bg-[#1A1A1E] rounded-full overflow-hidden transition-all duration-150">
+            <div
+              className="h-full transition-all duration-75 will-change-transform"
+              style={{
+                width: `${Math.min(100, Math.max(0, percentage))}%`,
+                backgroundColor: 'var(--cinema-accent, #FF2E55)',
+                boxShadow: '0 0 12px var(--cinema-accent-glow, rgba(255, 46, 85, 0.45))',
+              }}
+            />
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="0.01"
+            value={percentage || 0}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleMouseDown}
+            onChange={handleChange}
+            onMouseUp={handleMouseUp}
+            onTouchEnd={handleMouseUp as any}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+          />
+        </div>
+        <span className="w-9 shrink-0 select-none">{formatTime(duration)}</span>
+      </div>
+    );
+  }
+);
+CinemaProgressBar.displayName = 'CinemaProgressBar';
+
+/**
+ * Ultra-performance Active Karaoke Line with Direct GPU / Style Synchronizer
+ * Zero React render lag, sub-frame progressive gradient filling with minimal paint overhead
  */
 interface ActiveKaraokeLineProps {
   line: ProcessedKaraokeLine;
@@ -39,61 +128,78 @@ interface ActiveKaraokeLineProps {
 
 const ActiveKaraokeLine: React.FC<ActiveKaraokeLineProps> = memo(
   ({ line, accentColor, accentGlow, isPlaying }) => {
-    const [wordProgresses, setWordProgresses] = useState<number[]>(() =>
-      line.words.map(() => 0)
-    );
-    const rafRef = useRef<number | null>(null);
+    const wordRefs = useRef<(HTMLSpanElement | null)[]>([]);
+    const lastProgressRef = useRef<number[]>([]);
 
-    useEffect(() => {
+    const updateWordsDirectly = useCallback(() => {
       const audioEl = getAudioElement();
       if (!audioEl) return;
+      const now = audioEl.currentTime;
 
-      const updateProgress = () => {
-        const time = audioEl.currentTime;
-        const newProgresses = line.words.map((w) => getWordProgress(w, time));
-        setWordProgresses(newProgresses);
+      line.words.forEach((word, wIdx) => {
+        const el = wordRefs.current[wIdx];
+        if (!el || word.isSpace) return;
 
+        const progress = getWordProgress(word, now);
+        const prevProg = lastProgressRef.current[wIdx] ?? -1;
+
+        // Skip DOM manipulation if percentage difference is negligible (< 0.4%)
+        if (Math.abs(progress - prevProg) < 0.004 && progress > 0 && progress < 1) {
+          return;
+        }
+        lastProgressRef.current[wIdx] = progress;
+
+        const percent = Math.round(progress * 1000) / 10; // e.g. 73.4%
+
+        el.style.backgroundImage = `linear-gradient(90deg, ${accentColor} 0%, ${accentColor} ${percent}%, rgba(255, 255, 255, 0.28) ${percent}%, rgba(255, 255, 255, 0.28) 100%)`;
+
+        // GPU-friendly soft glow via text-shadow instead of expensive drop-shadow filters
+        if (progress > 0.08 && progress < 0.95) {
+          el.style.textShadow = `0 0 14px ${accentGlow}`;
+        } else if (progress >= 0.95) {
+          el.style.textShadow = `0 0 6px ${accentGlow}`;
+        } else {
+          el.style.textShadow = 'none';
+        }
+      });
+    }, [line, accentColor, accentGlow]);
+
+    useEffect(() => {
+      let rafId: number;
+
+      const loop = () => {
+        updateWordsDirectly();
         if (isPlaying) {
-          rafRef.current = requestAnimationFrame(updateProgress);
+          rafId = requestAnimationFrame(loop);
         }
       };
 
-      rafRef.current = requestAnimationFrame(updateProgress);
+      updateWordsDirectly();
+      rafId = requestAnimationFrame(loop);
 
       return () => {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        if (rafId) cancelAnimationFrame(rafId);
       };
-    }, [line, isPlaying]);
+    }, [updateWordsDirectly, isPlaying]);
 
     return (
-      <div className="flex flex-wrap items-baseline gap-y-1.5 py-1">
+      <div className="flex flex-wrap items-baseline gap-y-1.5 py-1 text-left select-none">
         {line.words.map((word, wIdx) => {
           if (word.isSpace) {
             return <span key={wIdx} className="inline-block whitespace-pre"> </span>;
           }
 
-          const progress = wordProgresses[wIdx] ?? 0;
-          const isFullySung = progress >= 1;
-          const isCurrentlySinging = progress > 0 && progress < 1;
-
           return (
             <span
               key={wIdx}
-              className="inline-block font-extrabold transition-transform duration-75 will-change-transform"
+              ref={(el) => {
+                wordRefs.current[wIdx] = el;
+              }}
+              className="inline-block font-extrabold will-change-[background-image,text-shadow] transition-all duration-75"
               style={{
-                backgroundImage: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor} ${
-                  progress * 100
-                }%, rgba(255, 255, 255, 0.28) ${
-                  progress * 100
-                }%, rgba(255, 255, 255, 0.28) 100%)`,
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
-                filter: isCurrentlySinging
-                  ? `drop-shadow(0 0 14px ${accentGlow})`
-                  : isFullySung
-                  ? `drop-shadow(0 0 5px ${accentGlow})`
-                  : 'none',
-                transform: isCurrentlySinging ? 'scale(1.02)' : 'scale(1)',
+                backgroundImage: `linear-gradient(90deg, ${accentColor} 0%, ${accentColor} 0%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.28) 100%)`,
               }}
             >
               {word.text}
@@ -104,14 +210,57 @@ const ActiveKaraokeLine: React.FC<ActiveKaraokeLineProps> = memo(
     );
   }
 );
-
 ActiveKaraokeLine.displayName = 'ActiveKaraokeLine';
+
+/**
+ * Memoized Individual Karaoke Line Row
+ * Uses CSS containment to avoid triggering reflows of the entire lyrics list
+ */
+interface KaraokeLineItemProps {
+  line: ProcessedKaraokeLine;
+  isActive: boolean;
+  isPast: boolean;
+  accentColor: string;
+  accentGlow: string;
+  isPlaying: boolean;
+  onSeek: (time: number) => void;
+  activeRef?: React.RefObject<HTMLDivElement | null>;
+}
+
+const KaraokeLineItem: React.FC<KaraokeLineItemProps> = memo(
+  ({ line, isActive, isPast, accentColor, accentGlow, isPlaying, onSeek, activeRef }) => {
+    return (
+      <div
+        ref={isActive ? activeRef : null}
+        onClick={() => onSeek(line.time)}
+        className={`lyric-item-containment cursor-pointer select-none text-left leading-snug origin-left transition-all duration-200 ${
+          isActive
+            ? 'text-3xl sm:text-4xl py-2 font-extrabold'
+            : isPast
+            ? 'text-xl sm:text-2xl font-bold text-[#353540] hover:text-[#555565] py-1'
+            : 'text-xl sm:text-2xl font-bold text-[#686878] hover:text-[#EDEDED] py-1'
+        }`}
+      >
+        {isActive ? (
+          <ActiveKaraokeLine
+            line={line}
+            accentColor={accentColor}
+            accentGlow={accentGlow}
+            isPlaying={isPlaying}
+          />
+        ) : (
+          <span>{line.text || '♪'}</span>
+        )}
+      </div>
+    );
+  }
+);
+KaraokeLineItem.displayName = 'KaraokeLineItem';
 
 export const CinemaMode: React.FC = () => {
   const {
     currentTrack,
     isPlaying,
-    currentTime,
     duration,
     volume,
     isMuted,
@@ -140,22 +289,21 @@ export const CinemaMode: React.FC = () => {
   const [isIdle, setIsIdle] = useState(false);
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
 
-  // Dynamic Album-Art Color Palette State (with dual-buffer cross-fading for smooth transitions)
-  const [currentPalette, setCurrentPalette] = useState<ExtractedPalette>(() =>
+  // Dynamic Album-Art Color Palette
+  const [palette, setPalette] = useState<ExtractedPalette>(() =>
     getFallbackPalette(settings.accentColor)
   );
-  const [targetPalette, setTargetPalette] = useState<ExtractedPalette>(() =>
-    getFallbackPalette(settings.accentColor)
-  );
-  const [paletteTransitionProgress, setPaletteTransitionProgress] = useState(1);
 
-  // Active line index in lyrics
+  // High-precision active lyric line derived directly from audio clock
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
+  const activeLineIndexRef = useRef(-1);
 
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const activeLyricRef = useRef<HTMLDivElement | null>(null);
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
   const providerMenuRef = useRef<HTMLDivElement | null>(null);
+  const isUserScrollingRef = useRef(false);
+  const userScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Pre-process synced lyrics into detailed syllable & word timing lines
   const processedLyrics: ProcessedKaraokeLine[] = useMemo(() => {
@@ -167,16 +315,13 @@ export const CinemaMode: React.FC = () => {
     let isCancelled = false;
 
     if (currentTrack?.artworkPath) {
-      extractPaletteFromImage(currentTrack.artworkPath, settings.accentColor).then((palette) => {
+      extractPaletteFromImage(currentTrack.artworkPath, settings.accentColor).then((newPalette) => {
         if (!isCancelled) {
-          setTargetPalette(palette);
-          setPaletteTransitionProgress(0);
+          setPalette(newPalette);
         }
       });
     } else {
-      const fallback = getFallbackPalette(settings.accentColor);
-      setTargetPalette(fallback);
-      setPaletteTransitionProgress(0);
+      setPalette(getFallbackPalette(settings.accentColor));
     }
 
     return () => {
@@ -184,57 +329,70 @@ export const CinemaMode: React.FC = () => {
     };
   }, [currentTrack?.artworkPath, currentTrack?.id, settings.accentColor]);
 
-  // 2. Smooth Color Palette Transition Animation (~900ms cross-fade)
+  // 2. High-Frequency Audio Clock Check for Instant, Zero-Lag Line Transitions
   useEffect(() => {
-    if (paletteTransitionProgress >= 1) return;
-
-    let startTime: number | null = null;
-    const duration = 900;
-
-    const animatePalette = (now: number) => {
-      if (!startTime) startTime = now;
-      const elapsed = now - startTime;
-      const progress = Math.min(1, elapsed / duration);
-
-      setPaletteTransitionProgress(progress);
-
-      if (progress >= 1) {
-        setCurrentPalette(targetPalette);
-      } else {
-        requestAnimationFrame(animatePalette);
-      }
-    };
-
-    const handle = requestAnimationFrame(animatePalette);
-    return () => cancelAnimationFrame(handle);
-  }, [paletteTransitionProgress, targetPalette]);
-
-  // 3. Lightweight Active Line Tracker (Triggered on playback time update)
-  useEffect(() => {
-    if (!processedLyrics.length) {
+    if (!isCinemaModeOpen || processedLyrics.length === 0) {
       setActiveLineIndex(-1);
+      activeLineIndexRef.current = -1;
       return;
     }
 
-    let newActiveIndex = -1;
-    for (let i = processedLyrics.length - 1; i >= 0; i--) {
-      if (currentTime >= processedLyrics[i].time - 0.25) {
-        newActiveIndex = i;
-        break;
-      }
-    }
-    setActiveLineIndex(newActiveIndex);
-  }, [currentTime, processedLyrics]);
+    const audioEl = getAudioElement();
+    if (!audioEl) return;
 
-  // Auto-scroll active lyric into center smoothly
+    let rafId: number;
+
+    const checkAudioTime = () => {
+      const time = audioEl.currentTime;
+      const idx = findActiveLineIndex(processedLyrics, time);
+
+      if (idx !== activeLineIndexRef.current) {
+        activeLineIndexRef.current = idx;
+        setActiveLineIndex(idx);
+      }
+
+      if (isPlaying) {
+        rafId = requestAnimationFrame(checkAudioTime);
+      }
+    };
+
+    checkAudioTime();
+    rafId = requestAnimationFrame(checkAudioTime);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [isCinemaModeOpen, isPlaying, processedLyrics]);
+
+  // 3. Ultra-smooth Auto-scrolling (with Manual Scroll Detection & Suppression)
   useEffect(() => {
-    if (activeLyricRef.current && lyricsContainerRef.current) {
-      activeLyricRef.current.scrollIntoView({
+    if (isUserScrollingRef.current) return;
+
+    const container = lyricsContainerRef.current;
+    const activeEl = activeLyricRef.current;
+
+    if (activeEl && container) {
+      const containerHeight = container.clientHeight;
+      const activeOffsetTop = activeEl.offsetTop;
+      const activeHeight = activeEl.clientHeight;
+
+      const targetScroll = activeOffsetTop - containerHeight / 2 + activeHeight / 2;
+
+      container.scrollTo({
+        top: Math.max(0, targetScroll),
         behavior: 'smooth',
-        block: 'center',
       });
     }
   }, [activeLineIndex]);
+
+  // Listen to manual scrolling to temporarily pause auto-scroll
+  const handleLyricsScroll = useCallback(() => {
+    isUserScrollingRef.current = true;
+    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
+    userScrollTimeoutRef.current = setTimeout(() => {
+      isUserScrollingRef.current = false;
+    }, 2800);
+  }, []);
 
   // Handle outside click for provider menu
   useEffect(() => {
@@ -250,7 +408,7 @@ export const CinemaMode: React.FC = () => {
   }, [isProviderMenuOpen]);
 
   // Handle idle mouse fading
-  const resetIdleTimer = () => {
+  const resetIdleTimer = useCallback(() => {
     setIsIdle(false);
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
@@ -258,7 +416,7 @@ export const CinemaMode: React.FC = () => {
         setIsIdle(true);
       }
     }, 3500);
-  };
+  }, [isProviderMenuOpen]);
 
   useEffect(() => {
     if (!isCinemaModeOpen) return;
@@ -276,6 +434,18 @@ export const CinemaMode: React.FC = () => {
       } else if (e.code === 'Space') {
         e.preventDefault();
         togglePlay();
+      } else if (e.key === 'ArrowRight') {
+        const audioEl = getAudioElement();
+        if (audioEl) seek(audioEl.currentTime + 5);
+      } else if (e.key === 'ArrowLeft') {
+        const audioEl = getAudioElement();
+        if (audioEl) seek(audioEl.currentTime - 5);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setVolume(Math.min(1, volume + 0.05));
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setVolume(Math.max(0, volume - 0.05));
       }
     };
 
@@ -287,8 +457,9 @@ export const CinemaMode: React.FC = () => {
       window.removeEventListener('keydown', resetIdleTimer);
       window.removeEventListener('keydown', handleKeyDown);
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
     };
-  }, [isCinemaModeOpen, isProviderMenuOpen, togglePlay, setCinemaModeOpen]);
+  }, [isCinemaModeOpen, isProviderMenuOpen, togglePlay, seek, setVolume, volume, setCinemaModeOpen, resetIdleTimer]);
 
   if (!isCinemaModeOpen || !currentTrack) return null;
 
@@ -301,85 +472,49 @@ export const CinemaMode: React.FC = () => {
     { id: 'local', label: 'Local File (.lrc)', icon: '📁' },
   ];
 
-  const activePalette = targetPalette;
-  const accentColor = activePalette.accent;
-  const accentGlow = activePalette.accentGlow;
-  const { energy: ambientEnergy, frequencyBins } = getAudioEnergy(isPlaying, currentTime);
+  const accentColor = palette.accent;
+  const accentGlow = palette.accentGlow;
 
   return (
     <div
       style={{
         '--cinema-accent': accentColor,
         '--cinema-accent-glow': accentGlow,
-        '--cinema-secondary': activePalette.secondary,
+        '--cinema-secondary': palette.secondary,
       } as React.CSSProperties}
       className="fixed inset-0 z-50 bg-[#050505] text-[#EDEDED] flex flex-col justify-between p-8 sm:p-10 select-none overflow-hidden animate-fadeIn"
     >
-      {/* 1. Dynamic Multi-Point Ambient Atmosphere (Smoothly Cross-Faded, Zero Audio Interference) */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-        {/* Previous Palette (Cross-Fading Out) */}
+      {/* 1. Dynamic GPU Hardware-Accelerated Ambient Atmosphere */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0 contain-render">
         <div
-          className="absolute inset-0 transition-opacity duration-1000 ease-out will-change-transform"
-          style={{ opacity: 1 - paletteTransitionProgress }}
-        >
-          <div
-            className="absolute -top-1/4 -left-1/4 w-[75vw] h-[75vw] rounded-full filter blur-[120px] transition-transform duration-700"
-            style={{
-              backgroundColor: currentPalette.dominant,
-              opacity: 0.32 + ambientEnergy * 0.08,
-              transform: `scale(${1 + ambientEnergy * 0.04})`,
-            }}
-          />
-          <div
-            className="absolute -bottom-1/4 -right-1/4 w-[55vw] h-[55vw] rounded-full filter blur-[140px] transition-transform duration-700"
-            style={{
-              backgroundColor: currentPalette.secondary,
-              opacity: 0.26 + ambientEnergy * 0.08,
-              transform: `scale(${1 + ambientEnergy * 0.05})`,
-            }}
-          />
-        </div>
-
-        {/* Target Palette (Cross-Fading In) */}
+          className="absolute -top-1/4 -left-1/4 w-[75vw] h-[75vw] rounded-full blur-[100px] gpu-layer animate-cinema-breath-1 transition-colors duration-1000"
+          style={{
+            backgroundColor: palette.dominant,
+          }}
+        />
         <div
-          className="absolute inset-0 transition-opacity duration-1000 ease-out will-change-transform"
-          style={{ opacity: paletteTransitionProgress }}
-        >
-          <div
-            className="absolute -top-1/4 -left-1/4 w-[75vw] h-[75vw] rounded-full filter blur-[120px] transition-transform duration-700"
-            style={{
-              backgroundColor: targetPalette.dominant,
-              opacity: 0.36 + ambientEnergy * 0.08,
-              transform: `scale(${1 + ambientEnergy * 0.04})`,
-            }}
-          />
-          <div
-            className="absolute -bottom-1/4 -right-1/4 w-[55vw] h-[55vw] rounded-full filter blur-[140px] transition-transform duration-700"
-            style={{
-              backgroundColor: targetPalette.secondary,
-              opacity: 0.28 + ambientEnergy * 0.08,
-              transform: `scale(${1 + ambientEnergy * 0.05})`,
-            }}
-          />
-          <div
-            className="absolute top-1/2 left-1/3 -translate-x-1/2 -translate-y-1/2 w-[45vw] h-[45vw] rounded-full filter blur-[150px] opacity-15"
-            style={{ backgroundColor: targetPalette.accent }}
-          />
-        </div>
-
+          className="absolute -bottom-1/4 -right-1/4 w-[60vw] h-[60vw] rounded-full blur-[120px] gpu-layer animate-cinema-breath-2 transition-colors duration-1000"
+          style={{
+            backgroundColor: palette.secondary,
+          }}
+        />
+        <div
+          className="absolute top-1/2 left-1/3 -translate-x-1/2 -translate-y-1/2 w-[45vw] h-[45vw] rounded-full blur-[140px] opacity-15 gpu-layer transition-colors duration-1000"
+          style={{ backgroundColor: palette.accent }}
+        />
         {/* Deep Contrast Scrim for Maximum Text Readability */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/75 via-[#050505]/35 to-[#050505]/85" />
       </div>
 
       {/* 2. Top Navigation Bar */}
       <header
-        className={`relative z-20 flex items-center justify-between transition-opacity duration-500 ${
+        className={`relative z-20 flex items-center justify-between transition-opacity duration-300 ${
           isIdle ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
         <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md font-black text-xs transition-colors duration-700"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md font-black text-xs transition-colors duration-500"
             style={{
               backgroundColor: accentColor,
               boxShadow: `0 0 16px ${accentGlow}`,
@@ -399,7 +534,7 @@ export const CinemaMode: React.FC = () => {
           <FormatBadge format={audioFormat} codec={currentTrack.codec} />
           <button
             onClick={() => setCinemaModeOpen(false)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#141416]/80 hover:bg-[#202025] border border-[#282830] text-xs text-white font-medium transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#141416]/80 hover:bg-[#202025] border border-[#282830] text-xs text-white font-medium transition-all duration-150 hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
             title="Exit Cinema Mode (Esc)"
           >
             <ArrowUpRight className="w-4 h-4 text-[#A3A3A3]" />
@@ -415,7 +550,7 @@ export const CinemaMode: React.FC = () => {
         <section className="md:col-span-5 flex flex-col items-center md:items-start gap-6 max-w-md mx-auto w-full">
           <div className="relative group">
             <div
-              className="w-72 h-72 sm:w-80 sm:h-80 rounded-3xl overflow-hidden bg-[#0A0A0A] border border-[#262626] relative transition-all duration-500 group-hover:scale-102"
+              className="w-72 h-72 sm:w-80 sm:h-80 rounded-3xl overflow-hidden bg-[#0A0A0A] border border-[#262626] relative transition-all duration-300 group-hover:scale-102 gpu-layer"
               style={{
                 boxShadow: `0 25px 50px -12px rgba(0, 0, 0, 0.9), 0 0 35px ${accentGlow}`,
               }}
@@ -429,7 +564,7 @@ export const CinemaMode: React.FC = () => {
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#151515] to-[#0A0A0A]">
                   <Disc
-                    className="w-24 h-24 opacity-80 animate-spin-slow transition-colors duration-700"
+                    className="w-24 h-24 opacity-80 animate-spin-slow transition-colors duration-500"
                     style={{ color: accentColor }}
                   />
                 </div>
@@ -452,11 +587,11 @@ export const CinemaMode: React.FC = () => {
             </div>
             <button
               onClick={() => toggleFavorite(currentTrack.id)}
-              className="p-3 rounded-2xl bg-[#141416]/80 hover:bg-[#1E1E22] border border-[#262626] transition-all duration-200 active:scale-125 cursor-pointer group"
+              className="p-3 rounded-2xl bg-[#141416]/80 hover:bg-[#1E1E22] border border-[#262626] transition-all duration-150 active:scale-125 cursor-pointer group"
               title="Favorite"
             >
               <Heart
-                className={`w-6 h-6 transition-all duration-200 ${
+                className={`w-6 h-6 transition-all duration-150 ${
                   currentTrack.isFavorite ? 'scale-110' : 'group-hover:scale-110 text-[#666666]'
                 }`}
                 style={
@@ -468,9 +603,9 @@ export const CinemaMode: React.FC = () => {
             </button>
           </div>
 
-          {/* Seekbar */}
+          {/* Isolated High-Performance Seekbar */}
           <div className="w-full">
-            <ProgressBar currentTime={currentTime} duration={duration} onSeek={seek} />
+            <CinemaProgressBar duration={duration} onSeek={seek} />
           </div>
 
           {/* Controls */}
@@ -478,7 +613,7 @@ export const CinemaMode: React.FC = () => {
             <div className="flex items-center justify-between w-full">
               <button
                 onClick={toggleShuffle}
-                className="p-2.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
+                className="p-2.5 rounded-full transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
                 style={
                   isShuffle
                     ? {
@@ -495,19 +630,19 @@ export const CinemaMode: React.FC = () => {
               <button
                 onClick={previousTrack}
                 className="text-[#EDEDED] hover:text-white p-2.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
-                title="Previous"
+                title="Previous (Left Arrow)"
               >
                 <SkipBack className="w-6 h-6" />
               </button>
 
               <button
                 onClick={togglePlay}
-                className="w-14 h-14 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-108 active:scale-95 cursor-pointer shadow-2xl"
+                className="w-14 h-14 rounded-full flex items-center justify-center text-white transition-all duration-150 hover:scale-108 active:scale-95 cursor-pointer shadow-2xl"
                 style={{
                   backgroundColor: accentColor,
                   boxShadow: `0 0 24px ${accentGlow}`,
                 }}
-                title={isPlaying ? 'Pause' : 'Play'}
+                title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
               >
                 {isPlaying ? (
                   <Pause className="w-6 h-6 fill-white" />
@@ -519,14 +654,14 @@ export const CinemaMode: React.FC = () => {
               <button
                 onClick={nextTrack}
                 className="text-[#EDEDED] hover:text-white p-2.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
-                title="Next"
+                title="Next (Right Arrow)"
               >
                 <SkipForward className="w-6 h-6" />
               </button>
 
               <button
                 onClick={toggleRepeatMode}
-                className="p-2.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
+                className="p-2.5 rounded-full transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
                 style={
                   repeatMode !== 'off'
                     ? {
@@ -573,7 +708,7 @@ export const CinemaMode: React.FC = () => {
         {/* Right Column: Seamless Unboxed Progressive Karaoke Typography */}
         <section className="md:col-span-7 h-[500px] sm:h-[560px] flex flex-col relative overflow-visible select-none">
           {/* Top Info & Provider Pill */}
-          <div className="flex items-center justify-between pb-4 mb-2 relative z-20">
+          <div className="flex items-center justify-between pb-4 mb-2 relative z-20 px-6 sm:px-8">
             <div className="flex items-center gap-2.5">
               <span
                 className="w-2 h-2 rounded-full animate-pulse"
@@ -655,7 +790,8 @@ export const CinemaMode: React.FC = () => {
           {/* True Progressive Karaoke Typography List */}
           <div
             ref={lyricsContainerRef}
-            className="flex-1 overflow-y-auto pr-4 flex flex-col gap-7 text-left no-scrollbar mask-gradient relative z-10 py-6"
+            onScroll={handleLyricsScroll}
+            className="flex-1 overflow-y-auto px-6 sm:px-8 flex flex-col gap-7 text-left no-scrollbar mask-gradient relative z-10 py-6 will-change-scroll gpu-layer"
           >
             {isLoadingLyrics ? (
               <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-[#777785] animate-pulse">
@@ -668,31 +804,17 @@ export const CinemaMode: React.FC = () => {
                 const isPast = activeLineIndex !== -1 && idx < activeLineIndex;
 
                 return (
-                  <div
+                  <KaraokeLineItem
                     key={line.id}
-                    ref={isActive ? activeLyricRef : null}
-                    onClick={() => seek(line.time)}
-                    className={`transition-all duration-300 cursor-pointer select-none text-left leading-snug ${
-                      isActive
-                        ? 'text-3xl sm:text-4xl py-2 scale-[1.01]'
-                        : isPast
-                        ? 'text-xl sm:text-2xl font-bold text-[#353540] hover:text-[#555562] py-1'
-                        : 'text-xl sm:text-2xl font-bold text-[#686875] hover:text-[#EDEDED] hover:scale-[1.01] py-1'
-                    }`}
-                  >
-                    {isActive ? (
-                      /* Active Karaoke Line (Isolated Local High-Frequency Animation) */
-                      <ActiveKaraokeLine
-                        line={line}
-                        accentColor={accentColor}
-                        accentGlow={accentGlow}
-                        isPlaying={isPlaying}
-                      />
-                    ) : (
-                      /* Inactive Lines */
-                      <span>{line.text || '♪'}</span>
-                    )}
-                  </div>
+                    line={line}
+                    isActive={isActive}
+                    isPast={isPast}
+                    accentColor={accentColor}
+                    accentGlow={accentGlow}
+                    isPlaying={isPlaying}
+                    onSeek={seek}
+                    activeRef={activeLyricRef}
+                  />
                 );
               })
             ) : (
@@ -709,26 +831,16 @@ export const CinemaMode: React.FC = () => {
 
       {/* 4. Bottom Bar: Audio Spectrum Waveform + Subtext */}
       <footer
-        className={`relative z-10 flex items-center justify-between transition-opacity duration-500 ${
+        className={`relative z-10 flex items-center justify-between transition-opacity duration-300 ${
           isIdle ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
-        <div className="flex items-end gap-1 h-5 px-2" title="Audio Spectrum">
-          {frequencyBins.map((bin, bIdx) => {
-            const minHeight = 4;
-            const dynamicHeight = Math.max(minHeight, Math.round(bin * 18 + 4));
-            return (
-              <span
-                key={bIdx}
-                className="w-1 rounded-full transition-all duration-75"
-                style={{
-                  height: `${dynamicHeight}px`,
-                  backgroundColor: accentColor,
-                  boxShadow: `0 0 8px ${accentGlow}`,
-                }}
-              />
-            );
-          })}
+        <div className="px-2" title="Audio Spectrum (GPU Accelerated)">
+          <CinemaVisualizer
+            isPlaying={isPlaying}
+            accentColor={accentColor}
+            accentGlow={accentGlow}
+          />
         </div>
 
         <span className="text-[11px] text-[#666670] font-mono text-center flex-1 pr-12">

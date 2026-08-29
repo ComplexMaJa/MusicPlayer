@@ -36,8 +36,11 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
       <div className="relative w-20 flex items-center h-4 group cursor-pointer">
         <div className="w-full h-1 group-hover:h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden transition-all duration-150">
           <div
-            className="h-full bg-[#EDEDED] group-hover:bg-[#FF2E55] transition-colors duration-150"
-            style={{ width: `${currentVal * 100}%` }}
+            className="h-full bg-[#EDEDED] transition-all duration-150"
+            style={{
+              width: `${currentVal * 100}%`,
+              backgroundColor: 'var(--accent-color, #FF2E55)',
+            }}
           />
         </div>
         <input

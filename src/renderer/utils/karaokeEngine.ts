@@ -1,5 +1,6 @@
 /**
- * Karaoke synchronization and progressive word-level timing engine
+ * Ultra-precise Karaoke Timing Engine & Enhanced LRC Parser
+ * Single source of truth: audio.currentTime
  */
 import { LyricLine } from '../../shared/types';
 
@@ -16,10 +17,26 @@ export interface ProcessedKaraokeLine {
   endTime: number;
   text: string;
   words: KaraokeWord[];
+  hasWordTimestamps: boolean;
 }
 
 /**
- * Preprocesses synced lyrics lines into detailed syllable/word timing structures
+ * Parses timestamp string like '01:23.45' or '83.45' to seconds
+ */
+function parseTimestampToSec(ts: string): number {
+  if (!ts) return 0;
+  const parts = ts.split(':');
+  if (parts.length === 2) {
+    const min = parseFloat(parts[0]) || 0;
+    const sec = parseFloat(parts[1]) || 0;
+    return min * 60 + sec;
+  }
+  return parseFloat(ts) || 0;
+}
+
+/**
+ * Preprocesses synced lyrics lines into ultra-accurate word timing structures
+ * Handles both word-level enhanced LRC tags (<00:12.34> or (00:12.34)) and smart vocal syllable estimation
  */
 export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLine[] {
   if (!lines || lines.length === 0) return [];
@@ -28,30 +45,86 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
     const nextLine = lines[idx + 1];
     const startTime = line.time;
     const rawText = line.text || '';
-    const charCount = rawText.trim().length;
 
-    // Calculate intelligent line end-time
-    let endTime: number;
-    if (nextLine) {
-      const gap = nextLine.time - startTime;
-      if (gap > 7.0) {
-        // Long pause/interlude: Estimate natural singing time with gentle breath hold
-        const estimatedSingingDuration = Math.min(gap - 0.8, Math.max(1.8, charCount * 0.25 + 0.8));
-        endTime = startTime + estimatedSingingDuration;
-      } else {
-        endTime = nextLine.time;
+    // Check for enhanced word-level LRC tags: <00:12.34>word or (00:12.34)word
+    const enhancedTagRegex = /<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\((\d{1,2}:\d{2}(?:\.\d{1,3})?)\)/g;
+    const hasWordTags = enhancedTagRegex.test(rawText);
+
+    if (hasWordTags) {
+      // Parse enhanced word-level timestamps
+      const words: KaraokeWord[] = [];
+      const tagWithTextRegex = /(?:<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\((\d{1,2}:\d{2}(?:\.\d{1,3})?)\))([^<()]+)/g;
+      let match: RegExpExecArray | null;
+      let cleanFullText = '';
+      let lastEnd = startTime;
+
+      while ((match = tagWithTextRegex.exec(rawText)) !== null) {
+        const timeStr = match[1] || match[2];
+        const wordText = match[3];
+        const wordStart = parseTimestampToSec(timeStr);
+        const isSpace = /^\s+$/.test(wordText);
+
+        cleanFullText += wordText;
+
+        // If there was a previous word, set its end time
+        if (words.length > 0) {
+          words[words.length - 1].endSec = Math.max(words[words.length - 1].startSec + 0.1, wordStart);
+        }
+
+        words.push({
+          text: wordText,
+          isSpace,
+          startSec: wordStart,
+          endSec: wordStart + Math.max(0.2, wordText.length * 0.08),
+        });
+
+        lastEnd = wordStart + Math.max(0.2, wordText.length * 0.08);
       }
-    } else {
-      endTime = startTime + Math.max(3.0, charCount * 0.28 + 1.0);
+
+      if (words.length > 0) {
+        const lineEndTime = nextLine ? Math.min(nextLine.time, lastEnd + 0.5) : lastEnd + 1.0;
+        words[words.length - 1].endSec = lineEndTime;
+
+        return {
+          id: idx,
+          time: startTime,
+          endTime: lineEndTime,
+          text: cleanFullText || rawText.replace(enhancedTagRegex, ''),
+          words,
+          hasWordTimestamps: true,
+        };
+      }
     }
 
-    const lineDuration = Math.max(0.4, endTime - startTime);
+    // Clean any remaining stray tags
+    const cleanText = rawText.replace(/<[^>]+>|\([^)]+\)/g, '').trim();
+    const charCount = cleanText.length || 1;
 
-    // Split line into words and spacing tokens
-    const tokens = rawText.split(/(\s+)/);
+    // Calculate natural singing duration
+    let lineDuration: number;
+    let endTime: number;
+
+    if (nextLine) {
+      const gap = Math.max(0.2, nextLine.time - startTime);
+      if (gap > 5.5) {
+        // Interlude / long rest: vocals finish naturally before the next line
+        lineDuration = Math.min(gap - 0.6, Math.max(1.4, charCount * 0.20 + 0.6));
+        endTime = startTime + lineDuration;
+      } else {
+        // Normal continuous phrase: leave ~8% breath room before next line
+        lineDuration = gap * 0.92;
+        endTime = startTime + lineDuration;
+      }
+    } else {
+      lineDuration = Math.max(2.5, charCount * 0.22 + 0.8);
+      endTime = startTime + lineDuration;
+    }
+
+    // Split into words and spaces
+    const tokens = cleanText.split(/(\s+)/);
     const words: KaraokeWord[] = [];
 
-    // Calculate proportional weights for each token
+    // Calculate proportional weights for each word token
     let totalWeight = 0;
     const tokenWeights: number[] = [];
 
@@ -59,18 +132,18 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
       if (!token) continue;
       const isSpace = /^\s+$/.test(token);
       if (isSpace) {
-        const weight = 0.2; // Minor pause between words
-        tokenWeights.push(weight);
-        totalWeight += weight;
+        const spaceWeight = 0.15;
+        tokenWeights.push(spaceWeight);
+        totalWeight += spaceWeight;
       } else {
         const cleanLen = token.replace(/[^\w]/g, '').length || 1;
-        let weight = cleanLen * 1.0;
+        let weight = Math.max(1, cleanLen);
 
-        // Punctuation bonuses for natural vocal phrasing
+        // Subtle punctuation pause bonus
         if (/[,;\-]/.test(token)) {
-          weight += 1.2;
+          weight += 0.8;
         } else if (/[.!?\)]/.test(token)) {
-          weight += 2.0;
+          weight += 1.4;
         }
 
         tokenWeights.push(weight);
@@ -106,19 +179,45 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
       id: idx,
       time: startTime,
       endTime,
-      text: rawText,
+      text: cleanText,
       words,
+      hasWordTimestamps: false,
     };
   });
 }
 
 /**
- * Calculates current word progress (0.0 to 1.0) given current playback timestamp
+ * Fast binary search to find the active lyric index in O(log N) time
+ * Checks within a 60ms anticipatory window for instant visual snap
+ */
+export function findActiveLineIndex(lines: ProcessedKaraokeLine[], currentTime: number): number {
+  if (!lines || lines.length === 0) return -1;
+
+  let low = 0;
+  let high = lines.length - 1;
+  let result = -1;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (lines[mid].time <= currentTime + 0.06) {
+      result = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Calculates exact progressive word highlight progress (0.0 to 1.0)
+ * Derived strictly from audio.currentTime
  */
 export function getWordProgress(word: KaraokeWord, currentTime: number): number {
   if (currentTime <= word.startSec) return 0;
   if (currentTime >= word.endSec) return 1;
   const duration = word.endSec - word.startSec;
-  if (duration <= 0) return 1;
+  if (duration <= 0.001) return 1;
   return Math.max(0, Math.min(1, (currentTime - word.startSec) / duration));
 }

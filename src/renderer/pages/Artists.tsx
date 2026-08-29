@@ -8,7 +8,10 @@ export const Artists: React.FC = () => {
   return (
     <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none">
       <div>
-        <h2 className="text-[10px] font-semibold text-[#FF2E55] uppercase tracking-widest mb-1 font-mono">
+        <h2
+          className="text-[10px] font-semibold uppercase tracking-widest mb-1 font-mono transition-colors"
+          style={{ color: 'var(--accent-color, #FF2E55)' }}
+        >
           LIBRARY
         </h2>
         <h1 className="text-3xl font-bold text-white tracking-tight">ARTISTS</h1>

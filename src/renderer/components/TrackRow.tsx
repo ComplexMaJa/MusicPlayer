@@ -48,18 +48,37 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
       onClick={handleRowClick}
       className={`grid grid-cols-12 items-center px-4 py-2.5 rounded-xl text-xs transition-all duration-150 ease-out group cursor-pointer select-none border relative ${
         isCurrent
-          ? 'bg-[#101010] border-[#FF2E55]/30 text-white shadow-sm'
+          ? 'bg-[#101010] text-white shadow-sm'
           : 'bg-transparent border-transparent hover:bg-[#0A0A0A] hover:border-[#1A1A1A] text-[#A3A3A3] hover:text-[#EDEDED]'
       }`}
+      style={
+        isCurrent
+          ? {
+              borderColor: 'var(--accent-glow, rgba(255, 46, 85, 0.35))',
+            }
+          : undefined
+      }
     >
       {/* Index / Play Icon */}
       <div className="col-span-1 flex items-center justify-start text-[#666666] font-mono text-xs">
         {isCurrent ? (
           <div className="flex items-center gap-1">
             {isPlaying ? (
-              <Pause className="w-3.5 h-3.5 text-[#FF2E55] fill-[#FF2E55] animate-pulse" />
+              <Pause
+                className="w-3.5 h-3.5 animate-pulse"
+                style={{
+                  color: 'var(--accent-color, #FF2E55)',
+                  fill: 'var(--accent-color, #FF2E55)',
+                }}
+              />
             ) : (
-              <Play className="w-3.5 h-3.5 text-[#FF2E55] fill-[#FF2E55]" />
+              <Play
+                className="w-3.5 h-3.5"
+                style={{
+                  color: 'var(--accent-color, #FF2E55)',
+                  fill: 'var(--accent-color, #FF2E55)',
+                }}
+              />
             )}
           </div>
         ) : (
@@ -79,7 +98,10 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
             className="w-7 h-7 rounded object-cover border border-[#1A1A1A] shrink-0 group-hover:scale-105 transition-transform duration-200"
           />
         )}
-        <span className={`font-medium truncate transition-colors duration-150 ${isCurrent ? 'text-[#FF2E55]' : 'text-white group-hover:text-white'}`}>
+        <span
+          className="font-medium truncate transition-colors duration-150"
+          style={isCurrent ? { color: 'var(--accent-color, #FF2E55)' } : undefined}
+        >
           {track.title}
         </span>
       </div>
@@ -96,9 +118,17 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
         <span
           className={`px-1.5 py-0.5 rounded text-[10px] uppercase border transition-colors ${
             track.codec === 'FLAC'
-              ? 'bg-[#151515] border-[#FF2E55]/30 text-[#FF2E55]'
+              ? 'bg-[#151515]'
               : 'bg-[#0A0A0A] border-[#1A1A1A] text-[#666666]'
           }`}
+          style={
+            track.codec === 'FLAC'
+              ? {
+                  borderColor: 'var(--accent-glow, rgba(255, 46, 85, 0.3))',
+                  color: 'var(--accent-color, #FF2E55)',
+                }
+              : undefined
+          }
         >
           {track.codec}
         </span>
@@ -144,13 +174,21 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
             e.stopPropagation();
             toggleFavorite(track.id);
           }}
-          className="opacity-0 group-hover:opacity-100 text-[#666666] hover:text-[#FF2E55] p-1 rounded hover:bg-[#151515] transition-all duration-150 hover:scale-125 active:scale-90"
+          className="opacity-0 group-hover:opacity-100 text-[#666666] p-1 rounded hover:bg-[#151515] transition-all duration-150 hover:scale-125 active:scale-90"
           title="Favorite"
         >
           <Heart
             className={`w-3.5 h-3.5 transition-all duration-200 ${
-              track.isFavorite ? 'fill-[#FF2E55] text-[#FF2E55] opacity-100 scale-105' : ''
+              track.isFavorite ? 'opacity-100 scale-105' : ''
             }`}
+            style={
+              track.isFavorite
+                ? {
+                    color: 'var(--accent-color, #FF2E55)',
+                    fill: 'var(--accent-color, #FF2E55)',
+                  }
+                : undefined
+            }
           />
         </button>
       </div>

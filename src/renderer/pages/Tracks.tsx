@@ -19,7 +19,10 @@ export const Tracks: React.FC = () => {
       {/* Header & Local Filter Input */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[10px] font-semibold text-[#FF2E55] uppercase tracking-widest mb-1 font-mono">
+          <h2
+            className="text-[10px] font-semibold uppercase tracking-widest mb-1 font-mono transition-colors"
+            style={{ color: 'var(--accent-color, #FF2E55)' }}
+          >
             ALL MUSIC
           </h2>
           <h1 className="text-3xl font-bold text-white tracking-tight">TRACKS</h1>
@@ -27,13 +30,19 @@ export const Tracks: React.FC = () => {
         </div>
 
         <div className="relative w-72 group">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666] group-focus-within:text-[#FF2E55] transition-colors duration-200" />
+          <Search
+            className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666] transition-colors duration-200"
+            style={{ color: filterText ? 'var(--accent-color, #FF2E55)' : undefined }}
+          />
           <input
             type="text"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Search tracks..."
-            className="w-full bg-[#0A0A0A] border border-[#1A1A1A] focus:border-[#FF2E55] focus:shadow-md focus:shadow-[#FF2E55]/10 rounded-full py-1.5 pl-10 pr-4 text-xs text-[#EDEDED] placeholder-[#666666] outline-none transition-all duration-200"
+            style={{
+              borderColor: filterText ? 'var(--accent-color, #FF2E55)' : undefined,
+            }}
+            className="w-full bg-[#0A0A0A] border border-[#1A1A1A] rounded-full py-1.5 pl-10 pr-4 text-xs text-[#EDEDED] placeholder-[#666666] outline-none transition-all duration-200"
           />
         </div>
       </div>

@@ -99,10 +99,13 @@ export const NowPlayingDrawer: React.FC = () => {
             }`}
             title="Live Synced Lyrics"
           >
-            <Mic2 className="w-3 h-3 text-[#FF2E55]" />
+            <Mic2 className="w-3 h-3" style={{ color: 'var(--accent-color, #FF2E55)' }} />
             <span>Lyrics</span>
             {hasSyncedLyrics && (
-              <span className="w-1.5 h-1.5 rounded-full bg-[#FF2E55] animate-pulse" />
+              <span
+                className="w-1.5 h-1.5 rounded-full animate-pulse"
+                style={{ backgroundColor: 'var(--accent-color, #FF2E55)' }}
+              />
             )}
           </button>
         </div>
@@ -138,7 +141,10 @@ export const NowPlayingDrawer: React.FC = () => {
               />
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-[#101010] to-[#050505]">
-                <Disc className="w-16 h-16 text-[#FF2E55] opacity-80" />
+                <Disc
+                  className="w-16 h-16 opacity-80"
+                  style={{ color: 'var(--accent-color, #FF2E55)' }}
+                />
               </div>
             )}
           </div>
@@ -194,7 +200,7 @@ export const NowPlayingDrawer: React.FC = () => {
                           : '📁 Local'}
                       </span>
                       {activeLyricProvider === prov && (
-                        <Check className="w-3 h-3 text-[var(--accent-color,#FF2E55)]" />
+                        <Check className="w-3 h-3" style={{ color: 'var(--accent-color, #FF2E55)' }} />
                       )}
                     </button>
                   ))}
@@ -208,7 +214,10 @@ export const NowPlayingDrawer: React.FC = () => {
             >
               {isLoadingLyrics ? (
                 <div className="h-full flex flex-col items-center justify-center gap-2 text-xs text-[#666666] animate-pulse">
-                  <Sparkles className="w-5 h-5 text-[#FF2E55] animate-spin-slow" />
+                  <Sparkles
+                    className="w-5 h-5 animate-spin-slow"
+                    style={{ color: 'var(--accent-color, #FF2E55)' }}
+                  />
                   <span>Finding synchronized lyrics...</span>
                 </div>
               ) : hasSyncedLyrics ? (

@@ -116,11 +116,19 @@ export function registerAudioProtocols(): void {
             method: request.method,
           });
         }
-      } else if (directPath && fs.existsSync(directPath)) {
-        return net.fetch(pathToFileURL(directPath).toString(), {
-          headers: request.headers,
-          method: request.method,
-        });
+      } else if (directPath) {
+        let targetPath = directPath;
+        if (!fs.existsSync(targetPath)) {
+          try {
+            targetPath = decodeURIComponent(targetPath);
+          } catch (_) {}
+        }
+        if (fs.existsSync(targetPath)) {
+          return net.fetch(pathToFileURL(targetPath).toString(), {
+            headers: request.headers,
+            method: request.method,
+          });
+        }
       }
     } catch (err) {
       console.error('Error serving artwork protocol:', err);

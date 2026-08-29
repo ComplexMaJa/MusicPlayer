@@ -65,7 +65,10 @@ export const AlbumDetail: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-3 min-w-0 flex-1">
-          <span className="text-[10px] font-semibold text-[#FF2E55] uppercase tracking-widest font-mono">
+          <span
+            className="text-[10px] font-semibold uppercase tracking-widest font-mono transition-colors"
+            style={{ color: 'var(--accent-color, #FF2E55)' }}
+          >
             ALBUM
           </span>
           <h1 className="text-3xl font-bold text-white tracking-tight truncate">{albumData.title}</h1>
@@ -77,12 +80,18 @@ export const AlbumDetail: React.FC = () => {
           <div className="flex items-center gap-3 mt-2">
             <button
               onClick={handlePlayAlbum}
-              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#FF2E55] hover:bg-[#FF4568] text-white text-xs font-semibold shadow-lg shadow-[#FF2E55]/30 hover:shadow-xl hover:shadow-[#FF2E55]/50 transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
+              className="flex items-center gap-2 px-5 py-2 rounded-xl text-white text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
+              style={{
+                backgroundColor: 'var(--accent-color, #FF2E55)',
+                boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.35))',
+              }}
             >
               <Play className="w-4 h-4 fill-white translate-x-0.5" />
               <span>Play</span>
             </button>
-            <button className="p-2 rounded-xl bg-[#101010] border border-[#1A1A1A] text-[#A3A3A3] hover:text-[#FF2E55] hover:border-[#FF2E55]/30 transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer">
+            <button
+              className="p-2 rounded-xl bg-[#101010] border border-[#1A1A1A] text-[#A3A3A3] hover:text-white transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
+            >
               <Heart className="w-4 h-4" />
             </button>
           </div>

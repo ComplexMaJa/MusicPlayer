@@ -37,7 +37,13 @@ export const Sidebar: React.FC = () => {
       <div className="p-5 flex flex-col gap-6">
         {/* Brand Header */}
         <div className="flex items-center gap-3 app-drag-region cursor-default">
-          <div className="w-7 h-7 rounded-full bg-[#FF2E55] flex items-center justify-center text-white shadow-lg shadow-[#FF2E55]/30">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-lg transition-colors duration-300"
+            style={{
+              backgroundColor: 'var(--accent-color, #FF2E55)',
+              boxShadow: '0 0 14px var(--accent-glow, rgba(255, 46, 85, 0.4))',
+            }}
+          >
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
@@ -126,13 +132,25 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 border-t border-[#1A1A1A]">
         <button
           onClick={() => setActiveView('settings')}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 group ${
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 group relative ${
             activeView === 'settings'
               ? 'text-white bg-[#101010]'
               : 'text-[#A3A3A3] hover:text-white hover:bg-[#0A0A0A]'
           }`}
         >
-          <SettingsIcon className="w-4 h-4 text-[#666666] group-hover:text-white group-hover:rotate-45 transition-all duration-300" />
+          {activeView === 'settings' && (
+            <div
+              className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 rounded-r-full animate-fadeIn"
+              style={{
+                backgroundColor: 'var(--accent-color, #FF2E55)',
+                boxShadow: '0 0 10px var(--accent-glow, rgba(255, 46, 85, 0.5))',
+              }}
+            />
+          )}
+          <SettingsIcon
+            className="w-4 h-4 transition-all duration-300 group-hover:rotate-45"
+            style={activeView === 'settings' ? { color: 'var(--accent-color, #FF2E55)' } : { color: '#666666' }}
+          />
           <span className="transition-transform duration-200 group-hover:translate-x-0.5">Settings</span>
         </button>
       </div>

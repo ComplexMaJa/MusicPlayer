@@ -6,6 +6,13 @@ import { registerAudioSchemes, registerAudioProtocols } from './audio';
 
 let mainWindow: BrowserWindow | null = null;
 
+// Enable full hardware acceleration and GPU rasterization
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,VaapiVideoDecoder');
+
 // Register privileged schemes BEFORE app.whenReady()
 registerAudioSchemes();
 
