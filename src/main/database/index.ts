@@ -4,29 +4,84 @@ import path from 'path';
 import { app } from 'electron';
 import { Track, Album, Artist, Playlist, LibraryStats } from '../../shared/types';
 
+type SqlJsModule = Awaited<ReturnType<typeof initSqlJs>>;
+
 let db: Database | null = null;
 let dbPath = '';
 
-export async function initDatabase(): Promise<Database> {
-  if (db) return db;
+const DB_FILENAME = 'maja-library.db';
+const SCHEMA_VERSION = 1;
 
-  const userDataPath = app.getPath('userData');
-  if (!fs.existsSync(userDataPath)) {
-    fs.mkdirSync(userDataPath, { recursive: true });
+function getBackupPath(): string {
+  return `${dbPath}.bak`;
+}
+
+function getUserVersion(database: Database): number {
+  const result = database.exec('PRAGMA user_version');
+  const value = result[0]?.values[0]?.[0];
+  return typeof value === 'number' ? value : 0;
+}
+
+function openDatabaseFile(SQL: SqlJsModule, filePath: string): Database | null {
+  if (!fs.existsSync(filePath)) return null;
+
+  let database: Database | null = null;
+
+  try {
+    const fileBuffer = fs.readFileSync(filePath);
+    if (fileBuffer.length === 0) {
+      throw new Error('Database file is empty');
+    }
+
+    database = new SQL.Database(fileBuffer);
+    // sql.js can construct a handle for arbitrary bytes without touching the
+    // file. Force a read so an invalid database is rejected here rather than
+    // failing later during startup.
+    database.exec('SELECT count(*) FROM sqlite_master');
+    return database;
+  } catch (err) {
+    console.error(`Could not open database at ${filePath}:`, err);
+    try {
+      database?.close();
+    } catch (_) {
+      // Ignore cleanup failures for the invalid handle.
+    }
+    return null;
   }
-  dbPath = path.join(userDataPath, 'maja-library.db');
+}
 
-  const SQL = await initSqlJs();
+function quarantineDatabase(filePath: string): void {
+  const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(filePath, corruptPath);
+    console.warn(`Moved unreadable database to ${corruptPath}`);
+  } catch (err) {
+    console.error('Failed to quarantine unreadable database:', err);
+  }
+}
 
-  if (fs.existsSync(dbPath)) {
-    const fileBuffer = fs.readFileSync(dbPath);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
+function recoverFromBackup(SQL: SqlJsModule): Database | null {
+  const backupPath = getBackupPath();
+  if (!fs.existsSync(backupPath)) return null;
+
+  const recovered = openDatabaseFile(SQL, backupPath);
+  if (!recovered) {
+    quarantineDatabase(backupPath);
+    return null;
   }
 
-  // Create tables & indexes
-  db.run(`
+  try {
+    fs.copyFileSync(backupPath, dbPath);
+    console.warn('Recovered library database from backup');
+  } catch (err) {
+    console.warn('Recovered database in memory but could not restore the primary file:', err);
+  }
+
+  return recovered;
+}
+
+function createSchema(database: Database): void {
+  database.run(`
     CREATE TABLE IF NOT EXISTS tracks (
       id TEXT PRIMARY KEY,
       path TEXT UNIQUE NOT NULL,
@@ -82,42 +137,157 @@ export async function initDatabase(): Promise<Database> {
     CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
     CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
     CREATE INDEX IF NOT EXISTS idx_tracks_favorite ON tracks(isFavorite);
+    CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track ON playlist_tracks(trackId);
   `);
+}
 
-  // Seed default playlists if table is empty
-  const plCheck = db.exec(`SELECT COUNT(*) FROM playlists`);
-  if (plCheck.length && plCheck[0].values.length && (plCheck[0].values[0][0] as number) === 0) {
-    const now = Date.now();
-    const defaultPlaylists = [
-      { id: 'pl_chill_vibes', name: 'Chill Vibes', description: 'Relaxing tracks for late night listening' },
-      { id: 'pl_coding_playlist', name: 'Coding Playlist', description: 'Lo-fi and focused instrumental beats' },
-      { id: 'pl_gym_playlist', name: 'Gym Playlist', description: 'High energy music for workouts' },
-      { id: 'pl_city_pop', name: 'Japanese City Pop', description: 'Retro 80s Japanese grooves' },
-    ];
-    for (const pl of defaultPlaylists) {
-      db.run(
-        `INSERT INTO playlists (id, name, description, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)`,
-        [pl.id, pl.name, pl.description, now, now]
-      );
-    }
+function seedDefaultPlaylists(database: Database): void {
+  const plCheck = database.exec(`SELECT COUNT(*) FROM playlists`);
+  if (!plCheck.length || !plCheck[0].values.length || (plCheck[0].values[0][0] as number) !== 0) {
+    return;
   }
 
+  const now = Date.now();
+  const defaultPlaylists = [
+    { id: 'pl_chill_vibes', name: 'Chill Vibes', description: 'Relaxing tracks for late night listening' },
+    { id: 'pl_coding_playlist', name: 'Coding Playlist', description: 'Lo-fi and focused instrumental beats' },
+    { id: 'pl_gym_playlist', name: 'Gym Playlist', description: 'High energy music for workouts' },
+    { id: 'pl_city_pop', name: 'Japanese City Pop', description: 'Retro 80s Japanese grooves' },
+  ];
+
+  for (const pl of defaultPlaylists) {
+    database.run(
+      `INSERT INTO playlists (id, name, description, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)`,
+      [pl.id, pl.name, pl.description, now, now]
+    );
+  }
+}
+
+function initializeSchema(database: Database, isNewDatabase: boolean): void {
+  // Foreign keys are connection-scoped and must be enabled on every launch.
+  database.run('PRAGMA foreign_keys = ON');
+
+  const currentVersion = getUserVersion(database);
+  if (currentVersion < SCHEMA_VERSION) {
+    createSchema(database);
+    database.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+
+  // Clean up orphaned playlist entries left behind by older versions where
+  // foreign keys were not enabled.
+  database.run(`
+    DELETE FROM playlist_tracks
+    WHERE playlistId NOT IN (SELECT id FROM playlists)
+       OR trackId NOT IN (SELECT id FROM tracks)
+  `);
+
+  // Only seed a brand-new library. An existing library whose playlists were
+  // intentionally deleted must not have the demo playlists recreated.
+  if (isNewDatabase) {
+    seedDefaultPlaylists(database);
+  }
+}
+
+export async function initDatabase(): Promise<Database> {
+  if (db) return db;
+
+  const userDataPath = app.getPath('userData');
+  if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true });
+  }
+  dbPath = path.join(userDataPath, DB_FILENAME);
+
+  const isNewDatabase = !fs.existsSync(dbPath) && !fs.existsSync(getBackupPath());
+  const SQL = await initSqlJs();
+
+  let database = openDatabaseFile(SQL, dbPath);
+
+  if (!database) {
+    if (fs.existsSync(dbPath)) {
+      quarantineDatabase(dbPath);
+    }
+    database = recoverFromBackup(SQL);
+  }
+
+  // Last resort: start with an empty database rather than failing to launch.
+  if (!database) {
+    database = new SQL.Database();
+  }
+
+  db = database;
+  initializeSchema(db, isNewDatabase);
   saveDatabase();
   return db;
 }
 
 export function saveDatabase(): void {
   if (!db || !dbPath) return;
+
+  const backupPath = getBackupPath();
+  const tempPath = `${dbPath}.tmp-${process.pid}`;
+  let tempExists = false;
+  let movedPrimaryToBackup = false;
+
   try {
-    const data = db.export();
-    const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
+    const buffer = Buffer.from(db.export());
+    // sql.js's export() closes and reopens the underlying connection, which
+    // resets connection-scoped pragmas. Restore them before using the handle
+    // again.
+    db.run('PRAGMA foreign_keys = ON');
+
+    const fd = fs.openSync(tempPath, 'w');
+    try {
+      fs.writeFileSync(fd, buffer);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    tempExists = true;
+
+    // Keep the previous database as a fallback, then atomically replace the
+    // primary file. A crash between these two renames is recoverable at startup.
+    if (fs.existsSync(dbPath)) {
+      fs.rmSync(backupPath, { force: true });
+      fs.renameSync(dbPath, backupPath);
+      movedPrimaryToBackup = true;
+    }
+
+    fs.renameSync(tempPath, dbPath);
+    tempExists = false;
   } catch (err) {
     console.error('Error saving SQLite database:', err);
+
+    if (movedPrimaryToBackup && !fs.existsSync(dbPath) && fs.existsSync(backupPath)) {
+      try {
+        fs.renameSync(backupPath, dbPath);
+      } catch (restoreErr) {
+        console.error('Failed to restore database after save failure:', restoreErr);
+      }
+    }
+
+    if (tempExists) {
+      try {
+        fs.rmSync(tempPath, { force: true });
+      } catch (_) {
+        // Nothing else we can do here.
+      }
+    }
   }
 }
 
 // Track operations
+export function isTrackPathKnown(filePath: string): boolean {
+  if (!db || !filePath) return false;
+
+  const stmt = db.prepare(`SELECT 1 FROM tracks WHERE path = ? LIMIT 1`);
+  try {
+    stmt.bind([filePath]);
+    return stmt.step();
+  } finally {
+    stmt.free();
+  }
+}
+
 export function upsertTrack(track: Track): void {
   if (!db) return;
   const stmt = db.prepare(`
@@ -432,18 +602,21 @@ export function getPlaylistTracksFromDb(playlistId: string): Track[] {
   return tracks;
 }
 
-// Remove missing tracks (for scanner)
+// Remove missing tracks (for scanner). The caller is responsible for
+// persisting the database once the scan has finished.
 export function removeTracksNotInPaths(existingPaths: Set<string>): void {
   if (!db) return;
   const allTracks = getAllTracks();
   const delStmt = db.prepare(`DELETE FROM tracks WHERE id = ?`);
-  for (const track of allTracks) {
-    if (!existingPaths.has(track.path)) {
-      delStmt.run([track.id]);
+  try {
+    for (const track of allTracks) {
+      if (!existingPaths.has(track.path)) {
+        delStmt.run([track.id]);
+      }
     }
+  } finally {
+    delStmt.free();
   }
-  delStmt.free();
-  saveDatabase();
 }
 
 function mapRowToTrack(columns: string[], row: any[]): Track {

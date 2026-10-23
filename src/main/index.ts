@@ -1,5 +1,6 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, dialog, session, shell } from 'electron';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { initDatabase } from './database';
 import { registerIpcHandlers } from './ipc';
 import { registerAudioSchemes, registerAudioProtocols } from './audio';
@@ -13,11 +14,52 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,VaapiVideoDecoder');
 
-// Register privileged schemes BEFORE app.whenReady()
-registerAudioSchemes();
+function openExternalIfSafe(url: string): void {
+  try {
+    const protocol = new URL(url).protocol;
+    if (protocol === 'http:' || protocol === 'https:') {
+      void shell.openExternal(url).catch((err) => {
+        console.warn('Failed to open external URL:', err);
+      });
+    }
+  } catch {
+    // Ignore malformed URLs.
+  }
+}
+
+function isAllowedInternalNavigation(url: string): boolean {
+  try {
+    const target = new URL(url);
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+    if (devServerUrl) {
+      return target.origin === new URL(devServerUrl).origin;
+    }
+
+    const rendererIndexUrl = pathToFileURL(
+      path.resolve(__dirname, '../renderer/index.html')
+    ).href;
+    return target.href.split('#')[0] === rendererIndexUrl;
+  } catch {
+    return false;
+  }
+}
+
+function guardNavigation(event: Electron.Event, url: string): void {
+  if (isAllowedInternalNavigation(url)) return;
+
+  event.preventDefault();
+  openExternalIfSafe(url);
+}
 
 async function createWindow() {
   await initDatabase();
+
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  session.defaultSession.setPermissionCheckHandler(() => false);
+
   registerAudioProtocols();
 
   mainWindow = new BrowserWindow({
@@ -33,8 +75,8 @@ async function createWindow() {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       webSecurity: true,
-      sandbox: false,
     },
   });
 
@@ -48,8 +90,11 @@ async function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  mainWindow.webContents.on('will-navigate', guardNavigation);
+  mainWindow.webContents.on('will-redirect', guardNavigation);
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url);
+    openExternalIfSafe(details.url);
     return { action: 'deny' };
   });
 
@@ -58,16 +103,41 @@ async function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
+  // Register privileged schemes BEFORE app.whenReady()
+  registerAudioSchemes();
+
+  app.whenReady()
+    .then(createWindow)
+    .catch((err) => {
+      console.error('Failed to start MaJa Player:', err);
+      dialog.showErrorBox(
+        'MaJa Player failed to start',
+        err instanceof Error ? err.message : String(err)
+      );
+      app.quit();
+    });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      void createWindow();
+    }
+  });
+}

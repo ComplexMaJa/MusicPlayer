@@ -157,7 +157,11 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
         if (window.electronAPI) {
           window.electronAPI.recordPlay(track.id);
           window.electronAPI.getAudioFormat(track.path).then((format) => {
-            set({ audioFormat: format });
+            if (get().currentTrack?.id === track.id) {
+              set({ audioFormat: format });
+            }
+          }).catch((err) => {
+            console.warn('Failed to load audio format:', err);
           });
           window.electronAPI.updateDiscordPresence(track, true, 0);
 

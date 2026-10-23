@@ -5,7 +5,50 @@ import { Readable } from 'stream';
 import { protocol, net } from 'electron';
 import { pathToFileURL } from 'url';
 import { AudioFormatInfo } from '../../shared/types';
+import { SUPPORTED_EXTENSIONS } from '../../shared/constants';
+import { isTrackPathKnown } from '../database';
 import { ensureArtworkDirExists } from '../library';
+
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif']);
+
+function isPathInside(parent: string, child: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function isSupportedAudioPath(filePath: string): boolean {
+  return SUPPORTED_EXTENSIONS.includes(path.extname(filePath).toLowerCase());
+}
+
+function isImagePath(filePath: string): boolean {
+  return IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!match) return null;
+
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) return null;
+
+  let start: number;
+  let end: number;
+
+  if (!rawStart) {
+    const suffixLength = Number(rawEnd);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    start = Math.max(0, fileSize - suffixLength);
+    end = fileSize - 1;
+  } else {
+    start = Number(rawStart);
+    end = rawEnd ? Number(rawEnd) : fileSize - 1;
+  }
+
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return null;
+  if (start < 0 || start >= fileSize || end < start) return null;
+
+  return { start, end: Math.min(end, fileSize - 1) };
+}
 
 function getMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -36,7 +79,6 @@ export function registerAudioSchemes(): void {
         supportFetchAPI: true,
         stream: true,
         corsEnabled: true,
-        bypassCSP: true,
       },
     },
     {
@@ -46,7 +88,6 @@ export function registerAudioSchemes(): void {
         secure: true,
         supportFetchAPI: true,
         corsEnabled: true,
-        bypassCSP: true,
       },
     },
   ]);
@@ -56,46 +97,68 @@ export function registerAudioProtocols(): void {
   protocol.handle('maja-audio', (request) => {
     try {
       const parsedUrl = new URL(request.url);
+      if (parsedUrl.hostname !== 'stream') {
+        return new Response('File not found', { status: 404 });
+      }
+
       const filePath = parsedUrl.searchParams.get('path');
-      if (filePath && fs.existsSync(filePath)) {
-        const stat = fs.statSync(filePath);
-        const fileSize = stat.size;
-        const mimeType = getMimeType(filePath);
-        const rangeHeader = request.headers.get('range');
+      if (
+        !filePath ||
+        !path.isAbsolute(filePath) ||
+        !isSupportedAudioPath(filePath) ||
+        !isTrackPathKnown(filePath)
+      ) {
+        return new Response('File not found', { status: 404 });
+      }
 
-        if (rangeHeader) {
-          const parts = rangeHeader.replace(/bytes=/, '').split('-');
-          const start = parseInt(parts[0], 10);
-          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-          const chunksize = end - start + 1;
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) {
+        return new Response('File not found', { status: 404 });
+      }
 
-          const nodeStream = fs.createReadStream(filePath, { start, end });
-          const webStream = Readable.toWeb(nodeStream);
+      const fileSize = stat.size;
+      const mimeType = getMimeType(filePath);
+      const rangeHeader = request.headers.get('range');
 
-          return new Response(webStream as any, {
-            status: 206,
-            statusText: 'Partial Content',
+      if (rangeHeader) {
+        const range = parseRangeHeader(rangeHeader, fileSize);
+        if (!range) {
+          return new Response('Range Not Satisfiable', {
+            status: 416,
             headers: {
-              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Content-Range': `bytes */${fileSize}`,
               'Accept-Ranges': 'bytes',
-              'Content-Length': chunksize.toString(),
-              'Content-Type': mimeType,
-            },
-          });
-        } else {
-          const nodeStream = fs.createReadStream(filePath);
-          const webStream = Readable.toWeb(nodeStream);
-
-          return new Response(webStream as any, {
-            status: 200,
-            headers: {
-              'Content-Length': fileSize.toString(),
-              'Accept-Ranges': 'bytes',
-              'Content-Type': mimeType,
             },
           });
         }
+
+        const { start, end } = range;
+        const nodeStream = fs.createReadStream(filePath, { start, end });
+        const webStream = Readable.toWeb(nodeStream);
+
+        return new Response(webStream as any, {
+          status: 206,
+          statusText: 'Partial Content',
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': (end - start + 1).toString(),
+            'Content-Type': mimeType,
+          },
+        });
       }
+
+      const nodeStream = fs.createReadStream(filePath);
+      const webStream = Readable.toWeb(nodeStream);
+
+      return new Response(webStream as any, {
+        status: 200,
+        headers: {
+          'Content-Length': fileSize.toString(),
+          'Accept-Ranges': 'bytes',
+          'Content-Type': mimeType,
+        },
+      });
     } catch (err) {
       console.error('Error serving audio protocol:', err);
     }
@@ -105,30 +168,56 @@ export function registerAudioProtocols(): void {
   protocol.handle('maja-artwork', (request) => {
     try {
       const parsedUrl = new URL(request.url);
-      const fileName = parsedUrl.searchParams.get('file');
-      const directPath = parsedUrl.searchParams.get('path');
-      if (fileName) {
-        const artDir = ensureArtworkDirExists();
-        const fullPath = path.join(artDir, fileName);
-        if (fs.existsSync(fullPath)) {
-          return net.fetch(pathToFileURL(fullPath).toString(), {
-            headers: request.headers,
-            method: request.method,
-          });
+
+      if (parsedUrl.hostname === 'stream') {
+        const fileName = parsedUrl.searchParams.get('file');
+        if (!fileName || !fileName.startsWith('art_') || path.basename(fileName) !== fileName) {
+          return new Response('Artwork not found', { status: 404 });
         }
-      } else if (directPath) {
+
+        const artDir = path.resolve(ensureArtworkDirExists());
+        const fullPath = path.resolve(artDir, fileName);
+        if (
+          !isPathInside(artDir, fullPath) ||
+          !isImagePath(fullPath) ||
+          !fs.existsSync(fullPath) ||
+          !fs.statSync(fullPath).isFile()
+        ) {
+          return new Response('Artwork not found', { status: 404 });
+        }
+
+        return net.fetch(pathToFileURL(fullPath).toString(), {
+          headers: request.headers,
+          method: request.method,
+        });
+      }
+
+      if (parsedUrl.hostname === 'load') {
+        const directPath = parsedUrl.searchParams.get('path');
+        if (!directPath) {
+          return new Response('Artwork not found', { status: 404 });
+        }
+
         let targetPath = directPath;
         if (!fs.existsSync(targetPath)) {
           try {
             targetPath = decodeURIComponent(targetPath);
           } catch (_) {}
         }
-        if (fs.existsSync(targetPath)) {
-          return net.fetch(pathToFileURL(targetPath).toString(), {
-            headers: request.headers,
-            method: request.method,
-          });
+
+        if (
+          !path.isAbsolute(targetPath) ||
+          !isImagePath(targetPath) ||
+          !fs.existsSync(targetPath) ||
+          !fs.statSync(targetPath).isFile()
+        ) {
+          return new Response('Artwork not found', { status: 404 });
         }
+
+        return net.fetch(pathToFileURL(targetPath).toString(), {
+          headers: request.headers,
+          method: request.method,
+        });
       }
     } catch (err) {
       console.error('Error serving artwork protocol:', err);
