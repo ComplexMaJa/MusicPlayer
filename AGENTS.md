@@ -36,3 +36,4 @@ MaJa Player (`package.json` name `maja-player`) is an Electron desktop music pla
 - Tailwind v4, no config file; theme tokens and custom utilities (`.text-accent`, `.amoled-card`, animations, reduced-motion rules) live in `renderer/index.css`. `App.tsx` injects `--accent-color` inline; reuse those CSS variables rather than adding new config.
 - The window is frameless: preserve `.app-drag-region` / `.app-no-drag` on custom chrome and use the existing preload window controls.
 - `settings.reducedMotion` adds `.reduced-motion` at the app root; new animations should respect it.
+- Cinema Mode replaces `♪`/“Instrumental” lines and long gaps with inline animated `InstrumentalDots`, driven by `getInstrumentalSegment` in `utils/karaokeEngine.ts`. Keep the dots inside the lyric list (not as a modal/overlay) and pause their CSS animation when `isPlaying` is false.

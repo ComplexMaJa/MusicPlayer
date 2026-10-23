@@ -274,6 +274,34 @@ main * {
   animation: cinemaGlowBreathSecondary 8s ease-in-out infinite 1.5s;
 }
 
+/* Inline instrumental lyric dots */
+@keyframes lyricDotPulse {
+  0%, 100% {
+    transform: translateY(0) scale(0.72);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(-3px) scale(1.05);
+    opacity: 1;
+  }
+}
+
+.instrumental-dot {
+  opacity: 0.35;
+  transform: scale(0.72);
+  will-change: transform, opacity;
+}
+
+.instrumental-dots.is-active .instrumental-dot {
+  width: 0.875rem;
+  height: 0.875rem;
+  animation: lyricDotPulse 1.15s ease-in-out infinite;
+}
+
+.instrumental-dots.is-paused .instrumental-dot {
+  animation-play-state: paused;
+}
+
 /* Glassmorphism & Custom Wallpaper Layering */
 .has-custom-wallpaper aside {
   background-color: rgba(6, 6, 6, 0.65) !important;

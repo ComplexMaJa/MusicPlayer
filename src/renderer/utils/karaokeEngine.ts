@@ -221,3 +221,87 @@ export function getWordProgress(word: KaraokeWord, currentTime: number): number 
   if (duration <= 0.001) return 1;
   return Math.max(0, Math.min(1, (currentTime - word.startSec) / duration));
 }
+
+export interface InstrumentalSegment {
+  start: number;
+  end: number;
+}
+
+const MIN_INSTRUMENTAL_GAP = 2.5;
+const MIN_INTRO_INSTRUMENTAL = 3.5;
+
+/**
+ * Detects placeholder lyric lines such as "♪", "Instrumental", or
+ * "Instrumental Break" that should be replaced by the interlude animation.
+ */
+export function isInstrumentalLine(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[♪♫♬♩.·•…]/g, '')
+    .replace(/[()[\]{}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) return true;
+
+  return /^(instrumental|instrumental break|instrumental interlude|interlude|musical break|music break|breakdown|solo)$/.test(
+    normalized
+  );
+}
+
+/**
+ * Returns the active instrumental segment for the current playback position.
+ * Explicit marker lines are always treated as interludes. Long gaps between
+ * the estimated end of a sung line and the next timestamp also qualify.
+ */
+export function getInstrumentalSegment(
+  lines: ProcessedKaraokeLine[],
+  currentTime: number,
+  duration = 0
+): InstrumentalSegment | null {
+  if (!lines.length) return null;
+
+  const safeDuration =
+    Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const firstLine = lines[0];
+
+  if (currentTime < firstLine.time && firstLine.time >= MIN_INTRO_INSTRUMENTAL) {
+    return { start: 0, end: firstLine.time };
+  }
+
+  const activeIndex = findActiveLineIndex(lines, currentTime);
+  if (activeIndex < 0) return null;
+
+  const activeLine = lines[activeIndex];
+  const nextLine = lines[activeIndex + 1];
+  const lineWindowEnd = nextLine
+    ? nextLine.time
+    : safeDuration > activeLine.endTime
+      ? safeDuration
+      : activeLine.endTime;
+
+  if (isInstrumentalLine(activeLine.text)) {
+    return {
+      start: activeLine.time,
+      end: Math.max(activeLine.time + 0.5, lineWindowEnd),
+    };
+  }
+
+  const breakStart = activeLine.endTime;
+  const breakEnd = nextLine
+    ? nextLine.time
+    : safeDuration > breakStart
+      ? safeDuration
+      : breakStart;
+
+  if (
+    currentTime >= breakStart &&
+    currentTime < breakEnd &&
+    breakEnd - breakStart >= MIN_INSTRUMENTAL_GAP
+  ) {
+    return { start: breakStart, end: breakEnd };
+  }
+
+  return null;
+}

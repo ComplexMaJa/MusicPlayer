@@ -22,12 +22,16 @@ import { useLibraryStore } from '../stores/useLibraryStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { FormatBadge } from './FormatBadge';
 import { CinemaVisualizer } from './CinemaVisualizer';
+import { InstrumentalDots } from './InstrumentalDots';
 import { LyricProviderOption } from '../../shared/types';
 import { extractPaletteFromImage, getFallbackPalette, ExtractedPalette } from '../utils/colorExtractor';
 import {
   processLyricsForKaraoke,
   findActiveLineIndex,
   getWordProgress,
+  getInstrumentalSegment,
+  isInstrumentalLine,
+  InstrumentalSegment,
   ProcessedKaraokeLine,
 } from '../utils/karaokeEngine';
 
@@ -238,6 +242,8 @@ interface KaraokeLineItemProps {
 
 const KaraokeLineItem: React.FC<KaraokeLineItemProps> = memo(
   ({ line, isActive, isPast, accentColor, accentGlow, isPlaying, onSeek, activeRef }) => {
+    const instrumental = isInstrumentalLine(line.text);
+
     return (
       <div
         ref={isActive ? activeRef : null}
@@ -250,7 +256,13 @@ const KaraokeLineItem: React.FC<KaraokeLineItemProps> = memo(
             : 'text-xl sm:text-2xl font-bold text-[#686878] hover:text-[#EDEDED] py-1'
         }`}
       >
-        {isActive ? (
+        {instrumental ? (
+          <InstrumentalDots
+            active={isActive}
+            isPlaying={isPlaying}
+            accentColor={accentColor}
+          />
+        ) : isActive ? (
           <ActiveKaraokeLine
             line={line}
             accentColor={accentColor}
@@ -258,7 +270,7 @@ const KaraokeLineItem: React.FC<KaraokeLineItemProps> = memo(
             isPlaying={isPlaying}
           />
         ) : (
-          <span>{line.text || '♪'}</span>
+          <span>{line.text}</span>
         )}
       </div>
     );
@@ -331,6 +343,8 @@ export const CinemaMode: React.FC = () => {
   // High-precision active lyric line derived directly from audio clock
   const [activeLineIndex, setActiveLineIndex] = useState(-1);
   const activeLineIndexRef = useRef(-1);
+  const [instrumentalBreak, setInstrumentalBreak] = useState<InstrumentalSegment | null>(null);
+  const instrumentalBreakRef = useRef<string | null>(null);
 
   const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const activeLyricRef = useRef<HTMLDivElement | null>(null);
@@ -370,6 +384,8 @@ export const CinemaMode: React.FC = () => {
     if (!isCinemaModeOpen || processedLyrics.length === 0) {
       setActiveLineIndex(-1);
       activeLineIndexRef.current = -1;
+      setInstrumentalBreak(null);
+      instrumentalBreakRef.current = null;
       return;
     }
 
@@ -387,6 +403,16 @@ export const CinemaMode: React.FC = () => {
         setActiveLineIndex(idx);
       }
 
+      const totalDuration =
+        Number.isFinite(audioEl.duration) && audioEl.duration > 0 ? audioEl.duration : duration;
+      const segment = getInstrumentalSegment(processedLyrics, time, totalDuration);
+      const segmentKey = segment ? `${segment.start}:${segment.end}` : null;
+
+      if (segmentKey !== instrumentalBreakRef.current) {
+        instrumentalBreakRef.current = segmentKey;
+        setInstrumentalBreak(segment);
+      }
+
       if (isPlaying) {
         rafId = requestAnimationFrame(checkAudioTime);
       }
@@ -398,7 +424,7 @@ export const CinemaMode: React.FC = () => {
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [isCinemaModeOpen, isPlaying, processedLyrics]);
+  }, [duration, isCinemaModeOpen, isPlaying, processedLyrics]);
 
   // 3. Ultra-smooth Auto-scrolling (with Manual Scroll Detection & Suppression)
   useEffect(() => {
@@ -508,6 +534,10 @@ export const CinemaMode: React.FC = () => {
   if (!isCinemaModeOpen || !currentTrack) return null;
 
   const hasSyncedLyrics = Boolean(processedLyrics.length > 0);
+  const activeLine = activeLineIndex >= 0 ? processedLyrics[activeLineIndex] : null;
+  const showGapDots = Boolean(
+    instrumentalBreak && (!activeLine || !isInstrumentalLine(activeLine.text))
+  );
 
   const providerOptions: { id: LyricProviderOption; label: string; icon: string }[] = [
     { id: 'auto', label: 'Auto (Smart Priority)', icon: '⚡' },
@@ -855,24 +885,47 @@ export const CinemaMode: React.FC = () => {
                 <span>Loading synchronized lyrics...</span>
               </div>
             ) : hasSyncedLyrics ? (
-              processedLyrics.map((line, idx) => {
-                const isActive = idx === activeLineIndex;
-                const isPast = activeLineIndex !== -1 && idx < activeLineIndex;
+              <>
+                {showGapDots && activeLineIndex === -1 && (
+                  <div className="py-1">
+                    <InstrumentalDots
+                      active
+                      isPlaying={isPlaying}
+                      accentColor={accentColor}
+                    />
+                  </div>
+                )}
 
-                return (
-                  <KaraokeLineItem
-                    key={line.id}
-                    line={line}
-                    isActive={isActive}
-                    isPast={isPast}
-                    accentColor={accentColor}
-                    accentGlow={accentGlow}
-                    isPlaying={isPlaying}
-                    onSeek={seek}
-                    activeRef={activeLyricRef}
-                  />
-                );
-              })
+                {processedLyrics.map((line, idx) => {
+                  const isActive = idx === activeLineIndex;
+                  const isPast = activeLineIndex !== -1 && idx < activeLineIndex;
+
+                  return (
+                    <React.Fragment key={line.id}>
+                      <KaraokeLineItem
+                        line={line}
+                        isActive={isActive}
+                        isPast={isPast}
+                        accentColor={accentColor}
+                        accentGlow={accentGlow}
+                        isPlaying={isPlaying}
+                        onSeek={seek}
+                        activeRef={activeLyricRef}
+                      />
+
+                      {showGapDots && activeLineIndex === idx && (
+                        <div className="py-1">
+                          <InstrumentalDots
+                            active
+                            isPlaying={isPlaying}
+                            accentColor={accentColor}
+                          />
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </>
             ) : (
               <div className="h-full flex flex-col items-center justify-center gap-4 text-sm text-[#777785] px-6 text-center">
                 <Mic2 className="w-8 h-8 opacity-30 text-[#A3A3A3]" />
@@ -882,6 +935,7 @@ export const CinemaMode: React.FC = () => {
               </div>
             )}
           </div>
+
         </section>
       </main>
 
