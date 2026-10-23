@@ -3,7 +3,7 @@ import { useLibraryStore } from '../stores/useLibraryStore';
 import { ArtistCard } from '../components/ArtistCard';
 
 export const Artists: React.FC = () => {
-  const { artists } = useLibraryStore();
+  const artists = useLibraryStore((state) => state.artists);
 
   return (
     <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none">

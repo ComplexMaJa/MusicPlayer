@@ -16,14 +16,13 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { FormatBadge } from './FormatBadge';
 import { ProgressBar } from './ProgressBar';
 import { VolumeSlider } from './VolumeSlider';
-import { LyricProviderOption } from '../../shared/types';
-
-export const NowPlayingDrawer: React.FC = () => {
+const NowPlayingDrawerContent: React.FC = () => {
   const {
     currentTrack,
     isPlaying,
@@ -50,9 +49,37 @@ export const NowPlayingDrawer: React.FC = () => {
     setNowPlayingDrawerOpen,
     toggleCinemaMode,
     setLyricProvider,
-  } = usePlayerStore();
+  } = usePlayerStore(
+    useShallow((state) => ({
+      currentTrack: state.currentTrack,
+      isPlaying: state.isPlaying,
+      currentTime: state.currentTime,
+      duration: state.duration,
+      volume: state.volume,
+      isMuted: state.isMuted,
+      isShuffle: state.isShuffle,
+      repeatMode: state.repeatMode,
+      audioFormat: state.audioFormat,
+      isNowPlayingDrawerOpen: state.isNowPlayingDrawerOpen,
+      lyrics: state.lyrics,
+      isLoadingLyrics: state.isLoadingLyrics,
+      activeLyricIndex: state.activeLyricIndex,
+      activeLyricProvider: state.activeLyricProvider,
+      togglePlay: state.togglePlay,
+      seek: state.seek,
+      setVolume: state.setVolume,
+      toggleMute: state.toggleMute,
+      nextTrack: state.nextTrack,
+      previousTrack: state.previousTrack,
+      toggleShuffle: state.toggleShuffle,
+      toggleRepeatMode: state.toggleRepeatMode,
+      setNowPlayingDrawerOpen: state.setNowPlayingDrawerOpen,
+      toggleCinemaMode: state.toggleCinemaMode,
+      setLyricProvider: state.setLyricProvider,
+    }))
+  );
 
-  const { toggleFavorite } = useLibraryStore();
+  const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
   const [activeTab, setActiveTab] = useState<'artwork' | 'lyrics'>('artwork');
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
   const activeLyricRef = useRef<HTMLDivElement | null>(null);
@@ -114,7 +141,8 @@ export const NowPlayingDrawer: React.FC = () => {
           <button
             onClick={toggleCinemaMode}
             className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
-            title="Expand to Fullscreen Cinema Mode (F11)"
+            title="Expand to Fullscreen Cinema Mode"
+            aria-label="Open cinema mode"
           >
             <Maximize2 className="w-4 h-4" />
           </button>
@@ -122,6 +150,7 @@ export const NowPlayingDrawer: React.FC = () => {
             onClick={() => setNowPlayingDrawerOpen(false)}
             className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
             title="Close panel"
+            aria-label="Close now playing panel"
           >
             <X className="w-4 h-4" />
           </button>
@@ -164,6 +193,7 @@ export const NowPlayingDrawer: React.FC = () => {
                 onClick={() => setIsProviderMenuOpen(!isProviderMenuOpen)}
                 className="text-[9px] font-mono tracking-wider text-[#8A8A95] hover:text-white bg-[#141418] hover:bg-[#202028] px-2 py-0.5 rounded-md border border-[#252530] uppercase flex items-center gap-1 transition-all cursor-pointer"
                 title="Select Lyric Provider"
+                aria-label="Select lyrics provider"
               >
                 <span>
                   {activeLyricProvider !== 'auto'
@@ -273,6 +303,7 @@ export const NowPlayingDrawer: React.FC = () => {
             onClick={() => toggleFavorite(currentTrack.id)}
             className="text-[#666666] hover:text-accent p-2 rounded-full hover:bg-[#151515] transition-all duration-200 active:scale-125 shrink-0 group/fav cursor-pointer"
             title="Favorite"
+            aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
             <Heart
               className={`w-4 h-4 transition-all duration-200 ${
@@ -292,7 +323,12 @@ export const NowPlayingDrawer: React.FC = () => {
 
         {/* Format Info Badge */}
         <div className="flex justify-center">
-          <FormatBadge format={audioFormat} codec={currentTrack.codec} />
+          <FormatBadge
+            format={audioFormat}
+            codec={currentTrack.codec}
+            sampleRate={currentTrack.sampleRate}
+            bitDepth={currentTrack.bitDepth}
+          />
         </div>
 
         {/* Playback Controls */}
@@ -309,6 +345,7 @@ export const NowPlayingDrawer: React.FC = () => {
                 : { color: '#666666' }
             }
             title="Shuffle"
+            aria-label={isShuffle ? 'Disable shuffle' : 'Enable shuffle'}
           >
             <Shuffle className="w-4 h-4" />
           </button>
@@ -316,6 +353,7 @@ export const NowPlayingDrawer: React.FC = () => {
             onClick={previousTrack}
             className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Previous"
+            aria-label="Previous track"
           >
             <SkipBack className="w-4 h-4" />
           </button>
@@ -327,6 +365,7 @@ export const NowPlayingDrawer: React.FC = () => {
               boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.45))',
             }}
             title={isPlaying ? 'Pause' : 'Play'}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
               <Pause className="w-5 h-5 fill-white" />
@@ -338,6 +377,7 @@ export const NowPlayingDrawer: React.FC = () => {
             onClick={nextTrack}
             className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Next"
+            aria-label="Next track"
           >
             <SkipForward className="w-4 h-4" />
           </button>
@@ -353,6 +393,7 @@ export const NowPlayingDrawer: React.FC = () => {
                 : { color: '#666666' }
             }
             title={`Repeat: ${repeatMode}`}
+            aria-label={`Repeat mode: ${repeatMode}`}
           >
             <Repeat className="w-4 h-4" />
           </button>
@@ -371,5 +412,14 @@ export const NowPlayingDrawer: React.FC = () => {
       </div>
     </aside>
   );
+};
+
+export const NowPlayingDrawer: React.FC = () => {
+  const isOpen = usePlayerStore((state) => state.isNowPlayingDrawerOpen);
+  const currentTrack = usePlayerStore((state) => state.currentTrack);
+
+  if (!isOpen || !currentTrack) return null;
+
+  return <NowPlayingDrawerContent />;
 };
 

@@ -141,7 +141,7 @@ export async function extractPaletteFromImage(
 
           if (a < 128) continue; // Skip transparent pixels
 
-          const [h, s, l] = rgbToHsl(r, g, b);
+          const [, s, l] = rgbToHsl(r, g, b);
 
           // Quantize to bucket colors
           const qR = Math.round(r / 24) * 24;

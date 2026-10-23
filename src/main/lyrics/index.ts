@@ -76,6 +76,40 @@ interface ProviderData {
   instrumental?: boolean;
 }
 
+const ONLINE_CACHE_LIMIT = 200;
+const onlineCache = new Map<string, ProviderData | null>();
+
+function getOnlineCacheKey(track: Track): string {
+  return [
+    track.title || '',
+    track.artist || '',
+    track.album || '',
+    String(Math.round(track.duration || 0)),
+  ]
+    .map((part) => part.trim().toLowerCase())
+    .join('\u0000');
+}
+
+function readOnlineCache(key: string): ProviderData | null | undefined {
+  if (!onlineCache.has(key)) return undefined;
+
+  // Refresh insertion order so the oldest entries are evicted first.
+  const cached = onlineCache.get(key) ?? null;
+  onlineCache.delete(key);
+  onlineCache.set(key, cached);
+  return cached;
+}
+
+function writeOnlineCache(key: string, data: ProviderData | null): void {
+  if (onlineCache.size >= ONLINE_CACHE_LIMIT) {
+    const oldestKey = onlineCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      onlineCache.delete(oldestKey);
+    }
+  }
+  onlineCache.set(key, data);
+}
+
 /**
  * Fetches lyrics from a specified or automatic provider:
  * - 'auto': Checks local -> embedded -> online, picking the best synced stream
@@ -144,16 +178,23 @@ export async function getLyricsForTrack(
     console.warn('Error checking embedded lyrics:', err);
   }
 
-  // 3. Check online LRCLIB (always query if auto or preferred online, or if neither local nor embedded has synced)
+  // 3. Check online LRCLIB only when the requested provider needs it and no
+  // higher-priority synced source is already available.
+  const hasLocalSynced = Boolean(localData?.syncedLyrics.length);
+  const hasEmbeddedSynced = Boolean(embeddedData?.syncedLyrics.length);
   const needOnline =
-    preferredProvider === 'online' ||
-    preferredProvider === 'auto' ||
-    (!localData?.syncedLyrics?.length && !embeddedData?.syncedLyrics?.length);
+    preferredProvider === 'online' || (!hasLocalSynced && !hasEmbeddedSynced);
 
   if (needOnline && track.title && track.artist && track.artist !== 'Unknown Artist') {
-    try {
-      const cleanTitle = cleanSongTitle(track.title);
-      const cleanArtist = cleanArtistName(track.artist);
+    const cacheKey = getOnlineCacheKey(track);
+    const cachedOnline = readOnlineCache(cacheKey);
+
+    if (cachedOnline !== undefined) {
+      onlineData = cachedOnline;
+    } else {
+      try {
+        const cleanTitle = cleanSongTitle(track.title);
+        const cleanArtist = cleanArtistName(track.artist);
 
       const fetchOptions = {
         headers: {
@@ -262,8 +303,10 @@ export async function getLyricsForTrack(
           }
         }
       }
-    } catch (err) {
-      console.warn('LRCLIB online fetch error:', err);
+      } catch (err) {
+        console.warn('LRCLIB online fetch error:', err);
+      }
+      writeOnlineCache(cacheKey, onlineData);
     }
   }
 

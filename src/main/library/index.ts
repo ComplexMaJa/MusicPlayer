@@ -4,7 +4,12 @@ import path from 'path';
 import crypto from 'crypto';
 import { app, BrowserWindow } from 'electron';
 import { findAudioFilesRecursive } from '../filesystem';
-import { upsertTrack, removeTracksNotInPaths, saveDatabase } from '../database';
+import {
+  getAllArtworkPaths,
+  upsertTrack,
+  removeTracksNotInPaths,
+  saveDatabase,
+} from '../database';
 import { Track, ScanProgress } from '../../shared/types';
 
 const artworkCacheDir = () => path.join(app.getPath('userData'), 'artwork');
@@ -15,6 +20,33 @@ export function ensureArtworkDirExists(): string {
     fs.mkdirSync(dir, { recursive: true });
   }
   return dir;
+}
+
+function getCachedArtworkName(artworkPath: string): string | null {
+  try {
+    const fileName = new URL(artworkPath).searchParams.get('file');
+    return fileName && path.basename(fileName) === fileName ? fileName : null;
+  } catch {
+    return null;
+  }
+}
+
+function pruneArtworkCache(cacheDir: string): void {
+  try {
+    const referenced = new Set(
+      getAllArtworkPaths()
+        .map(getCachedArtworkName)
+        .filter((fileName): fileName is string => Boolean(fileName))
+    );
+
+    for (const fileName of fs.readdirSync(cacheDir)) {
+      if (fileName.startsWith('art_') && !referenced.has(fileName)) {
+        fs.rmSync(path.join(cacheDir, fileName), { force: true });
+      }
+    }
+  } catch (err) {
+    console.warn('Could not prune artwork cache:', err);
+  }
 }
 
 /**
@@ -90,8 +122,16 @@ export async function scanFolders(
 
         if (common.picture && common.picture.length > 0) {
           const pic = common.picture[0];
-          const ext = pic.format.includes('png') ? 'png' : 'jpg';
-          const artFileName = `art_${fileId}.${ext}`;
+          const pictureFormat = pic.format.toLowerCase();
+          const ext = pictureFormat.includes('png')
+            ? 'png'
+            : pictureFormat.includes('webp')
+              ? 'webp'
+              : pictureFormat.includes('gif')
+                ? 'gif'
+                : 'jpg';
+          const artworkHash = crypto.createHash('md5').update(pic.data).digest('hex');
+          const artFileName = `art_${artworkHash}.${ext}`;
           const artFullPath = path.join(cacheDir, artFileName);
 
           if (!fs.existsSync(artFullPath)) {
@@ -153,7 +193,11 @@ export async function scanFolders(
   } finally {
     // Persist metadata for files processed before any unexpected failure.
     // The scanner's database mutations are otherwise only held in memory.
-    saveDatabase();
+    const saved = saveDatabase();
+
+    if (saved && !scanError) {
+      pruneArtworkCache(cacheDir);
+    }
 
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('library:scanProgress', {

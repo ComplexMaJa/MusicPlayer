@@ -179,15 +179,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       throw new Error('Unknown track path');
     }
 
-    const info = await getAudioFormatInfo(filePath);
-    if (currentSettings.exclusiveMode) {
-      info.outputMode = 'WASAPI Exclusive';
-      info.isBitPerfect = true;
-    } else if (currentSettings.outputDevice.includes('DirectSound')) {
-      info.outputMode = 'DirectSound';
-      info.isBitPerfect = false;
-    }
-    return info;
+    return getAudioFormatInfo(filePath);
   });
 
   // Lyrics Engine
@@ -216,7 +208,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         currentSettings.discordShowTrack ?? true,
         currentSettings.discordShowElapsed ?? true,
         currentSettings.discordLargeImage ?? 'logo',
-        currentSettings.discordLargeImageText ?? 'MaJa Player (Lossless Audio)',
+        currentSettings.discordLargeImageText ?? 'MaJa Player',
         currentSettings.discordActivityType ?? 'listening'
       );
     } else {

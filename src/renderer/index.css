@@ -8,6 +8,29 @@
   }
 }
 
+/* Keep chrome non-selectable, but let users select track metadata and text in
+   the main content area. */
+main,
+main * {
+  user-select: text;
+}
+
+/* Accessible focus ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--accent-color, #FF2E55);
+  outline-offset: 2px;
+}
+
+/* #666666 does not meet AA contrast on the AMOLED background. Keep the
+   existing utility names but raise their rendered contrast centrally. */
+.text-\[\#666666\] {
+  color: #8A8A8A;
+}
+
+.placeholder-\[\#666666\]::placeholder {
+  color: #8A8A8A;
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -123,6 +146,16 @@
   50% {
     box-shadow: 0 0 25px rgba(255, 46, 85, 0.55);
   }
+}
+
+@keyframes spinSlow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 8s linear infinite;
 }
 
 .animate-fadeIn {
@@ -277,6 +310,11 @@
 
 .has-custom-wallpaper .bg-\[\#050505\] {
   background-color: transparent !important;
+}
+
+/* Cinema Mode must remain opaque even when a custom wallpaper is active. */
+.has-custom-wallpaper .cinema-overlay {
+  background-color: #050505 !important;
 }
 
 .has-custom-wallpaper .border-\[\#1A1A1A\] {

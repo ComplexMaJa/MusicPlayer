@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import {
   Sliders,
   Volume2,
-  ShieldCheck,
   Moon,
-  Radio,
   Disc,
   FolderPlus,
   Trash2,
@@ -15,23 +13,26 @@ import {
   Upload,
   Link as LinkIcon,
   Image as ImageIcon,
-  Eye,
   Palette,
   RotateCcw,
-  Layers,
-  X,
-  Plus,
   Mic2,
-  Globe,
 } from 'lucide-react';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
+import { usePlayerStore } from '../stores/usePlayerStore';
+import { LyricProviderOption } from '../../shared/types';
 import { ToggleSwitch } from '../components/ToggleSwitch';
 
 export const SettingsPage: React.FC = () => {
-  const { settings, updateSettings } = useSettingsStore();
-  const { scanFolders } = useLibraryStore();
-  const [activeCategory, setActiveCategory] = useState<'audio' | 'playback' | 'discord' | 'appearance' | 'library'>('audio');
+  const settings = useSettingsStore((state) => state.settings);
+  const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const scanFolders = useLibraryStore((state) => state.scanFolders);
+  const setLyricProvider = usePlayerStore((state) => state.setLyricProvider);
+  const currentTrack = usePlayerStore((state) => state.currentTrack);
+  const audioFormat = usePlayerStore((state) => state.audioFormat);
+  const [activeCategory, setActiveCategory] = useState<
+    'playback' | 'discord' | 'appearance' | 'library'
+  >('playback');
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [bgTab, setBgTab] = useState<'file' | 'url' | 'presets'>('file');
   const [webUrlInput, setWebUrlInput] = useState('');
@@ -45,6 +46,23 @@ export const SettingsPage: React.FC = () => {
     await updateSettings(newSettings);
     triggerToast();
   };
+
+  const formatRate = (sampleRate?: number) => {
+    if (!sampleRate) return '';
+    return `${(sampleRate / 1000).toFixed(sampleRate % 1000 === 0 ? 0 : 1)}kHz`;
+  };
+
+  const previewSpecs = currentTrack
+    ? [
+        audioFormat?.codec || currentTrack.codec,
+        (audioFormat?.bitDepth || currentTrack.bitDepth)
+          ? `${audioFormat?.bitDepth || currentTrack.bitDepth}bit`
+          : '',
+        formatRate(audioFormat?.sampleRate || currentTrack.sampleRate),
+      ]
+        .filter(Boolean)
+        .join(' • ')
+    : '';
 
   const handleAddFolder = async () => {
     if (!window.electronAPI) return;
@@ -163,8 +181,7 @@ export const SettingsPage: React.FC = () => {
         {/* Left Navigation Tabs */}
         <div className="col-span-3 bg-[#0A0A0A] border border-[#1A1A1A] rounded-2xl p-2 flex flex-col gap-1 shadow-xl">
           {[
-            { id: 'audio', label: 'Audio Engine', icon: <Radio className="w-4 h-4" /> },
-            { id: 'playback', label: 'Playback', icon: <Volume2 className="w-4 h-4" /> },
+            { id: 'playback', label: 'Playback & Lyrics', icon: <Volume2 className="w-4 h-4" /> },
             { id: 'discord', label: 'Discord RPC', icon: <Disc className="w-4 h-4" /> },
             { id: 'appearance', label: 'Appearance', icon: <Moon className="w-4 h-4" /> },
             { id: 'library', label: 'Library & System', icon: <Sliders className="w-4 h-4" /> },
@@ -173,7 +190,11 @@ export const SettingsPage: React.FC = () => {
             return (
               <button
                 key={cat.id}
-                onClick={() => setActiveCategory(cat.id as any)}
+                onClick={() =>
+                  setActiveCategory(
+                    cat.id as 'playback' | 'discord' | 'appearance' | 'library'
+                  )
+                }
                 className={`flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-medium transition-all duration-200 relative group cursor-pointer ${
                   isActive
                     ? 'bg-[#101010] font-semibold shadow-md'
@@ -212,96 +233,15 @@ export const SettingsPage: React.FC = () => {
 
         {/* Right Settings Content Area */}
         <div className="col-span-9 bg-[#0A0A0A] border border-[#1A1A1A] rounded-2xl p-6 flex flex-col gap-6 shadow-xl transition-all duration-300">
-          {/* Audio Engine Category */}
-          {activeCategory === 'audio' && (
-            <div className="flex flex-col gap-6 animate-fadeIn">
-              <div>
-                <h3 className="text-sm font-bold text-white mb-1">Audio Output & Engine</h3>
-                <p className="text-xs text-[#666666]">Configure WASAPI direct hardware output and sample rates.</p>
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-semibold text-[#666666] uppercase tracking-wider font-mono">
-                  OUTPUT DEVICE API
-                </label>
-                <div className="relative">
-                  <select
-                    value={settings.outputDevice}
-                    onChange={(e) => handleUpdate({ outputDevice: e.target.value })}
-                    className="w-full bg-[#101010] border border-[#242424] text-xs text-white rounded-xl p-3 outline-none transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="Default (WASAPI)">Default (WASAPI Shared Mode)</option>
-                    <option value="WASAPI Exclusive">WASAPI Exclusive Mode (Direct Hardware Output)</option>
-                    <option value="DirectSound">DirectSound Speakers</option>
-                  </select>
-                </div>
-                <p className="text-[11px] text-[#666666] font-light mt-1">
-                  WASAPI Direct ensures bit-exact PCM decoding without Windows audio engine resampling.
-                </p>
-              </div>
-
-              {/* Status Banner */}
-              <div className="bg-[#101010] border border-[#1A1A1A] p-4 rounded-xl flex items-center justify-between text-xs font-mono">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{
-                      backgroundColor: 'var(--accent-glow, rgba(255, 46, 85, 0.15))',
-                      borderColor: 'var(--accent-glow, rgba(255, 46, 85, 0.35))',
-                      borderWidth: '1px',
-                      color: 'var(--accent-color, #FF2E55)',
-                    }}
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-white font-bold">FLAC • 24-bit • 96kHz</p>
-                    <p className="text-[10px] text-[#666666]">Neutral Lossless Audio Engine Active</p>
-                  </div>
-                </div>
-                <span
-                  className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border"
-                  style={{
-                    backgroundColor: 'var(--accent-glow, rgba(255, 46, 85, 0.15))',
-                    borderColor: 'var(--accent-glow, rgba(255, 46, 85, 0.35))',
-                    color: 'var(--accent-color, #FF2E55)',
-                  }}
-                >
-                  {settings.exclusiveMode ? 'WASAPI EXCLUSIVE' : 'WASAPI SHARED'}
-                </span>
-              </div>
-
-              <div className="flex flex-col gap-5 pt-4 border-t border-[#1A1A1A]">
-                <ToggleSwitch
-                  label="WASAPI Exclusive Mode"
-                  description="Bypasses Windows system mixer for direct hardware stream delivery."
-                  checked={settings.exclusiveMode}
-                  onChange={(val) => handleUpdate({ exclusiveMode: val })}
-                />
-
-                <ToggleSwitch
-                  label="Gapless Track Transitions"
-                  description="Pre-buffers consecutive album tracks for seamless 0ms gapless playback."
-                  checked={settings.gaplessPlayback}
-                  onChange={(val) => handleUpdate({ gaplessPlayback: val })}
-                />
-
-                <ToggleSwitch
-                  label="Remember Playback Position"
-                  description="Restores your active track and position when launching MaJa Player."
-                  checked={settings.rememberPlaybackPosition}
-                  onChange={(val) => handleUpdate({ rememberPlaybackPosition: val })}
-                />
-              </div>
-            </div>
-          )}
-
           {/* Playback Category */}
           {activeCategory === 'playback' && (
             <div className="flex flex-col gap-6 animate-fadeIn">
               <div>
                 <h3 className="text-sm font-bold text-white mb-1">Playback & Lyrics</h3>
-                <p className="text-xs text-[#666666]">Manage gain processing and default lyric provider sources.</p>
+                <p className="text-xs text-[#666666]">
+                  Playback uses the system output through Electron's HTML5 audio engine. Choose the
+                  default lyrics source below.
+                </p>
               </div>
 
               {/* Lyrics Engine Provider Selection Card */}
@@ -355,7 +295,10 @@ export const SettingsPage: React.FC = () => {
                     return (
                       <button
                         key={prov.id}
-                        onClick={() => handleUpdate({ lyricsProvider: prov.id as any })}
+                        onClick={async () => {
+                          await setLyricProvider(prov.id as LyricProviderOption);
+                          triggerToast();
+                        }}
                         className={`p-3.5 rounded-xl border text-left flex flex-col justify-between transition-all duration-150 cursor-pointer ${
                           isSelected
                             ? 'bg-[#181820] border-[var(--accent-color,#FF2E55)] shadow-md'
@@ -378,14 +321,6 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-5 pt-2">
-                <ToggleSwitch
-                  label="Normalize Volume (Gain Normalization)"
-                  description="Applies peak normalization across tracks. Disabled by default for pure audiophile neutrality."
-                  checked={settings.normalizeVolume}
-                  onChange={(val) => handleUpdate({ normalizeVolume: val })}
-                />
-              </div>
             </div>
           )}
 
@@ -424,7 +359,7 @@ export const SettingsPage: React.FC = () => {
                     ? 'bg-[#5FE39A]/10 text-[#5FE39A] border-[#5FE39A]/30'
                     : 'bg-[#666666]/10 text-[#666666] border-[#666666]/30'
                 }`}>
-                  {settings.discordEnabled ? 'ACTIVE & READY' : 'DISABLED'}
+                  {settings.discordEnabled ? 'ENABLED' : 'DISABLED'}
                 </span>
               </div>
 
@@ -434,7 +369,7 @@ export const SettingsPage: React.FC = () => {
                   <span className="text-[10px] font-mono font-bold text-[#A3A3A3] uppercase tracking-wider">
                     DISCORD PROFILE PREVIEW
                   </span>
-                  <span className="text-[10px] text-[#5865F2] font-mono">Real-time Simulation</span>
+                  <span className="text-[10px] text-[#5865F2] font-mono">Live Preview</span>
                 </div>
 
                 <div className="bg-[#1e1f22] border border-[#2b2d31] rounded-lg p-3.5 flex items-center gap-3.5 shadow-md">
@@ -451,16 +386,18 @@ export const SettingsPage: React.FC = () => {
                     <p className="text-[10px] font-bold text-[#b5bac1] uppercase tracking-wide truncate">
                       {settings.discordActivityType === 'playing' ? 'PLAYING A GAME' : 'LISTENING TO MUSIC'}
                     </p>
-                    <p className="text-xs font-bold text-white truncate">
-                      {settings.discordClientId && settings.discordClientId !== '463097721130188830'
-                        ? 'MaJa Player'
-                        : 'MaJa Player (Lossless)'}
-                    </p>
+                    <p className="text-xs font-bold text-white truncate">MaJa Player</p>
                     <p className="text-xs text-[#dbdee1] truncate">
-                      {settings.discordShowTrack ? 'Machine Love' : 'Listening to Music'}
+                      {settings.discordShowTrack
+                        ? currentTrack
+                          ? currentTrack.title
+                          : 'No active track'
+                        : 'Listening to Music'}
                     </p>
                     <p className="text-[11px] text-[#949ba4] font-mono truncate">
-                      {settings.discordLargeImageText?.trim() || 'FLAC • 16bit • 44.1kHz'}
+                      {settings.discordLargeImageText?.trim() ||
+                        previewSpecs ||
+                        'Start playback to preview audio specs'}
                     </p>
                   </div>
                 </div>
@@ -669,7 +606,7 @@ export const SettingsPage: React.FC = () => {
               <div>
                 <h3 className="text-sm font-bold text-white mb-1">Appearance & Studio</h3>
                 <p className="text-xs text-[#666666]">
-                  Personalize accent highlights, custom wallpapers, glassmorphism blur, and AMOLED styling.
+                  Personalize accent highlights, custom wallpapers, and motion preferences.
                 </p>
               </div>
 
@@ -1059,13 +996,6 @@ export const SettingsPage: React.FC = () => {
 
                 <div className="flex flex-col gap-4">
                   <ToggleSwitch
-                    label="AMOLED Deep Black Mode"
-                    description="Enforces pure #050505 AMOLED black backgrounds for high-contrast OLED displays."
-                    checked={settings.amoledMode}
-                    onChange={(val) => handleUpdate({ amoledMode: val })}
-                  />
-
-                  <ToggleSwitch
                     label="Reduced Motion & Subtle Animations"
                     description="Disables subtle glow pulses and UI scale transitions for maximum minimalism."
                     checked={settings.reducedMotion}
@@ -1080,8 +1010,8 @@ export const SettingsPage: React.FC = () => {
           {activeCategory === 'library' && (
             <div className="flex flex-col gap-6 animate-fadeIn">
               <div>
-                <h3 className="text-sm font-bold text-white mb-1">Library & Startup</h3>
-                <p className="text-xs text-[#666666]">Manage local music folders and launch preferences.</p>
+                <h3 className="text-sm font-bold text-white mb-1">Library & Storage</h3>
+                <p className="text-xs text-[#666666]">Manage the folders that make up your local library.</p>
               </div>
 
               <div className="flex items-center justify-between">
@@ -1126,21 +1056,12 @@ export const SettingsPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex flex-col gap-5 pt-4 border-t border-[#1A1A1A]">
-                <ToggleSwitch
-                  label="Start Minimized to Tray"
-                  description="Launches MaJa Player quietly in the system background."
-                  checked={settings.startMinimized}
-                  onChange={(val) => handleUpdate({ startMinimized: val })}
-                />
-              </div>
-
               <div className="p-4 rounded-xl bg-[#101010] border border-[#1A1A1A] flex items-center gap-3">
                 <Sparkles className="w-5 h-5 shrink-0" style={{ color: 'var(--accent-color, #FF2E55)' }} />
                 <div>
-                  <p className="text-xs font-bold text-white">MaJa Player V1.0.0 — Minimal Audiophile Player</p>
+                  <p className="text-xs font-bold text-white">MaJa Player 1.0.0 — Local Music Player</p>
                   <p className="text-[11px] text-[#666666]">
-                    Offline-first FLAC engine built with Electron, React, TypeScript, SQLite & Tailwind CSS.
+                    Local-first playback built with Electron, React, TypeScript, SQLite & Tailwind CSS.
                   </p>
                 </div>
               </div>

@@ -48,7 +48,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   return (
     <div className={`flex items-center gap-3 w-full text-xs font-mono text-[#666666] ${className}`}>
       <span className="w-9 text-right shrink-0 select-none">{formatTime(displayTime)}</span>
-      <div className="relative flex-1 flex items-center h-4 group cursor-pointer">
+      <div className="relative flex-1 flex items-center h-4 group cursor-pointer rounded-full focus-within:ring-2 focus-within:ring-[var(--accent-color,#FF2E55)] focus-within:ring-offset-2 focus-within:ring-offset-[#050505]">
         <div className="w-full h-1 group-hover:h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden transition-all duration-150">
           <div
             className="h-full transition-all duration-150"
@@ -65,6 +65,8 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           max="100"
           step="0.01"
           value={percentage || 0}
+          aria-label="Seek playback position"
+          aria-valuetext={`${formatTime(displayTime)} of ${formatTime(duration)}`}
           onMouseDown={handleMouseDown}
           onTouchStart={handleMouseDown}
           onChange={handleChange}

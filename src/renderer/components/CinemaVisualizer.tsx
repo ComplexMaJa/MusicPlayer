@@ -177,7 +177,7 @@ export const CinemaVisualizer: React.FC<CinemaVisualizerProps> = ({
   return (
     <div
       className={`relative flex items-center justify-center p-1 rounded-xl bg-[#0D0D10]/80 border border-[#1E1E24]/80 backdrop-blur-md shadow-lg ${className}`}
-      title="Audio Spectrum Engine (GPU Accelerated)"
+      title="Ambient visualizer"
       style={{
         boxShadow: `0 0 16px ${accentGlow}22`,
       }}

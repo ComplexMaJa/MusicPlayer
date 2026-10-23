@@ -1,21 +1,87 @@
-import React, { useState } from 'react';
-import { Search as SearchIcon, Disc, User, Music, ListMusic } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Search as SearchIcon, ListMusic } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
-import { usePlayerStore } from '../stores/usePlayerStore';
 import { TrackRow } from '../components/TrackRow';
 import { AlbumCard } from '../components/AlbumCard';
 import { ArtistCard } from '../components/ArtistCard';
 
+type SearchTab = 'all' | 'songs' | 'artists' | 'albums' | 'playlists';
+
 export const Search: React.FC = () => {
-  const { searchQuery, setSearchQuery, tracks, albums, artists, playlists } = useLibraryStore();
-  const [activeTab, setActiveTab] = useState<'all' | 'songs' | 'artists' | 'albums' | 'playlists'>('all');
+  const {
+    searchQuery,
+    tracks,
+    albums,
+    artists,
+    playlists,
+    setSelectedPlaylistId,
+    setActiveView,
+  } = useLibraryStore(
+    useShallow((state) => ({
+      searchQuery: state.searchQuery,
+      tracks: state.tracks,
+      albums: state.albums,
+      artists: state.artists,
+      playlists: state.playlists,
+      setSelectedPlaylistId: state.setSelectedPlaylistId,
+      setActiveView: state.setActiveView,
+    }))
+  );
+  const [activeTab, setActiveTab] = useState<SearchTab>('all');
 
   const query = searchQuery.toLowerCase().trim();
 
-  const filteredTracks = query ? tracks.filter((t) => t.title.toLowerCase().includes(query) || t.artist.toLowerCase().includes(query)) : [];
-  const filteredAlbums = query ? albums.filter((a) => a.title.toLowerCase().includes(query) || a.artist.toLowerCase().includes(query)) : [];
-  const filteredArtists = query ? artists.filter((a) => a.name.toLowerCase().includes(query)) : [];
-  const filteredPlaylists = query ? playlists.filter((p) => p.name.toLowerCase().includes(query)) : [];
+  const { filteredTracks, filteredAlbums, filteredArtists, filteredPlaylists } = useMemo(() => {
+    if (!query) {
+      return {
+        filteredTracks: [],
+        filteredAlbums: [],
+        filteredArtists: [],
+        filteredPlaylists: [],
+      };
+    }
+
+    return {
+      filteredTracks: tracks.filter(
+        (track) =>
+          track.title.toLowerCase().includes(query) ||
+          track.artist.toLowerCase().includes(query) ||
+          track.album.toLowerCase().includes(query)
+      ),
+      filteredAlbums: albums.filter(
+        (album) =>
+          album.title.toLowerCase().includes(query) || album.artist.toLowerCase().includes(query)
+      ),
+      filteredArtists: artists.filter((artist) => artist.name.toLowerCase().includes(query)),
+      filteredPlaylists: playlists.filter((playlist) =>
+        playlist.name.toLowerCase().includes(query)
+      ),
+    };
+  }, [albums, artists, playlists, query, tracks]);
+
+  const visibleTracks =
+    activeTab === 'all' ? filteredTracks.slice(0, 8) : filteredTracks;
+  const visibleArtists =
+    activeTab === 'all' ? filteredArtists.slice(0, 5) : filteredArtists;
+  const visibleAlbums =
+    activeTab === 'all' ? filteredAlbums.slice(0, 5) : filteredAlbums;
+  const visiblePlaylists =
+    activeTab === 'all' ? filteredPlaylists.slice(0, 5) : filteredPlaylists;
+
+  const hasResults =
+    activeTab === 'all'
+      ? filteredTracks.length > 0 ||
+        filteredArtists.length > 0 ||
+        filteredAlbums.length > 0 ||
+        filteredPlaylists.length > 0
+      : activeTab === 'songs'
+        ? filteredTracks.length > 0
+        : activeTab === 'artists'
+          ? filteredArtists.length > 0
+          : activeTab === 'albums'
+            ? filteredAlbums.length > 0
+            : filteredPlaylists.length > 0;
 
   return (
     <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none">
@@ -34,7 +100,7 @@ export const Search: React.FC = () => {
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id as SearchTab)}
               className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer ${
                 activeTab === tab.id
                   ? 'text-white shadow-md'
@@ -64,7 +130,7 @@ export const Search: React.FC = () => {
                 SONGS ({filteredTracks.length})
               </h2>
               <div className="flex flex-col gap-1">
-                {filteredTracks.slice(0, 8).map((track, idx) => (
+                {visibleTracks.map((track, idx) => (
                   <TrackRow key={track.id} track={track} index={idx} queueContext={filteredTracks} />
                 ))}
               </div>
@@ -78,7 +144,7 @@ export const Search: React.FC = () => {
                 ARTISTS ({filteredArtists.length})
               </h2>
               <div className="grid grid-cols-5 gap-4">
-                {filteredArtists.slice(0, 5).map((artist) => (
+                {visibleArtists.map((artist) => (
                   <ArtistCard key={artist.id} artist={artist} />
                 ))}
               </div>
@@ -92,14 +158,47 @@ export const Search: React.FC = () => {
                 ALBUMS ({filteredAlbums.length})
               </h2>
               <div className="grid grid-cols-5 gap-4">
-                {filteredAlbums.slice(0, 5).map((album) => (
+                {visibleAlbums.map((album) => (
                   <AlbumCard key={album.id} album={album} />
                 ))}
               </div>
             </section>
           )}
 
-          {filteredTracks.length === 0 && filteredArtists.length === 0 && filteredAlbums.length === 0 && (
+          {/* Playlists Results */}
+          {(activeTab === 'all' || activeTab === 'playlists') &&
+            filteredPlaylists.length > 0 && (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
+                  PLAYLISTS ({filteredPlaylists.length})
+                </h2>
+                <div className="grid grid-cols-5 gap-4">
+                  {visiblePlaylists.map((playlist) => (
+                    <button
+                      key={playlist.id}
+                      onClick={() => {
+                        setSelectedPlaylistId(playlist.id);
+                        setActiveView('playlist-detail');
+                      }}
+                      className="p-4 rounded-2xl border border-[#1A1A1A] bg-[#0A0A0A] text-left transition-all duration-200 ease-out hover:-translate-y-1 hover:border-white/20 cursor-pointer"
+                    >
+                      <div
+                        className="w-8 h-8 rounded-lg bg-[#151515] border border-[#1A1A1A] flex items-center justify-center mb-3"
+                        style={{ color: 'var(--accent-color, #FF2E55)' }}
+                      >
+                        <ListMusic className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-xs font-bold text-white truncate">{playlist.name}</h4>
+                      <p className="text-[10px] font-mono text-[#666666] mt-1">
+                        {playlist.trackCount} {playlist.trackCount === 1 ? 'SONG' : 'SONGS'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+
+          {!hasResults && (
             <div className="py-16 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl text-xs text-[#666666]">
               No results found for "{searchQuery}".
             </div>
@@ -108,7 +207,7 @@ export const Search: React.FC = () => {
       ) : (
         <div className="py-16 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl flex flex-col items-center gap-3 text-xs text-[#666666]">
           <SearchIcon className="w-8 h-8 text-[#333333]" />
-          <p>Type in the top search bar to search for songs, artists, or albums.</p>
+          <p>Type in the top search bar to search for songs, artists, albums, or playlists.</p>
         </div>
       )}
     </div>

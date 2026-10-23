@@ -22,6 +22,11 @@ export const electronAPI = {
     ipcRenderer.on('library:scanProgress', handler);
     return () => ipcRenderer.removeListener('library:scanProgress', handler);
   },
+  onLibraryChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('library:changed', handler);
+    return () => ipcRenderer.removeListener('library:changed', handler);
+  },
   getLibraryStats: (): Promise<LibraryStats> => ipcRenderer.invoke('library:getStats'),
 
   // Library Queries

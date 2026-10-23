@@ -1,6 +1,6 @@
 /**
  * Non-intrusive audio visualizer synthesizer that does NOT hijack HTMLAudioElement
- * Safe for custom protocols (maja-audio://) and bit-perfect streaming
+ * Safe for custom protocols (maja-audio://) and local streaming
  */
 
 export function getAudioEnergy(isPlaying: boolean, time: number): { energy: number; frequencyBins: number[] } {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, memo, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   Play,
   Pause,
@@ -39,13 +40,19 @@ const CinemaProgressBar: React.FC<{ duration: number; onSeek: (seconds: number) 
     const [currentTime, setCurrentTime] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
     const [dragValue, setDragValue] = useState(0);
+    const lastRenderedTime = useRef(0);
 
     useEffect(() => {
       let rafId: number;
       const tick = () => {
         const audioEl = getAudioElement();
         if (audioEl && !isDragging) {
-          setCurrentTime(audioEl.currentTime);
+          const nextTime = audioEl.currentTime;
+          // The visual bar only needs a fraction of the display refresh rate.
+          if (Math.abs(nextTime - lastRenderedTime.current) >= 0.05) {
+            lastRenderedTime.current = nextTime;
+            setCurrentTime(nextTime);
+          }
         }
         rafId = requestAnimationFrame(tick);
       };
@@ -100,6 +107,8 @@ const CinemaProgressBar: React.FC<{ duration: number; onSeek: (seconds: number) 
             max="100"
             step="0.01"
             value={percentage || 0}
+            aria-label="Seek playback position"
+            aria-valuetext={`${formatTime(displayTime)} of ${formatTime(duration)}`}
             onMouseDown={handleMouseDown}
             onTouchStart={handleMouseDown}
             onChange={handleChange}
@@ -281,10 +290,35 @@ export const CinemaMode: React.FC = () => {
     toggleRepeatMode,
     setCinemaModeOpen,
     setLyricProvider,
-  } = usePlayerStore();
+  } = usePlayerStore(
+    useShallow((state) => ({
+      currentTrack: state.currentTrack,
+      isPlaying: state.isPlaying,
+      duration: state.duration,
+      volume: state.volume,
+      isMuted: state.isMuted,
+      isShuffle: state.isShuffle,
+      repeatMode: state.repeatMode,
+      audioFormat: state.audioFormat,
+      isCinemaModeOpen: state.isCinemaModeOpen,
+      lyrics: state.lyrics,
+      isLoadingLyrics: state.isLoadingLyrics,
+      activeLyricProvider: state.activeLyricProvider,
+      togglePlay: state.togglePlay,
+      seek: state.seek,
+      setVolume: state.setVolume,
+      toggleMute: state.toggleMute,
+      nextTrack: state.nextTrack,
+      previousTrack: state.previousTrack,
+      toggleShuffle: state.toggleShuffle,
+      toggleRepeatMode: state.toggleRepeatMode,
+      setCinemaModeOpen: state.setCinemaModeOpen,
+      setLyricProvider: state.setLyricProvider,
+    }))
+  );
 
-  const { toggleFavorite } = useLibraryStore();
-  const { settings } = useSettingsStore();
+  const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const settings = useSettingsStore((state) => state.settings);
 
   const [isIdle, setIsIdle] = useState(false);
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
@@ -312,6 +346,8 @@ export const CinemaMode: React.FC = () => {
 
   // 1. Dynamic Album-Art Color Palette Extraction
   useEffect(() => {
+    if (!isCinemaModeOpen) return;
+
     let isCancelled = false;
 
     if (currentTrack?.artworkPath) {
@@ -327,7 +363,7 @@ export const CinemaMode: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [currentTrack?.artworkPath, currentTrack?.id, settings.accentColor]);
+  }, [isCinemaModeOpen, currentTrack?.artworkPath, currentTrack?.id, settings.accentColor]);
 
   // 2. High-Frequency Audio Clock Check for Instant, Zero-Lag Line Transitions
   useEffect(() => {
@@ -431,7 +467,15 @@ export const CinemaMode: React.FC = () => {
         } else {
           setCinemaModeOpen(false);
         }
-      } else if (e.code === 'Space') {
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, button, [contenteditable="true"]')) {
+        return;
+      }
+
+      if (e.code === 'Space') {
         e.preventDefault();
         togglePlay();
       } else if (e.key === 'ArrowRight') {
@@ -482,7 +526,7 @@ export const CinemaMode: React.FC = () => {
         '--cinema-accent-glow': accentGlow,
         '--cinema-secondary': palette.secondary,
       } as React.CSSProperties}
-      className="fixed inset-0 z-50 bg-[#050505] text-[#EDEDED] flex flex-col justify-between p-8 sm:p-10 select-none overflow-hidden animate-fadeIn"
+      className="cinema-overlay fixed inset-0 z-50 bg-[#050505] text-[#EDEDED] flex flex-col justify-between p-8 sm:p-10 select-none overflow-hidden animate-fadeIn"
     >
       {/* 1. Dynamic GPU Hardware-Accelerated Ambient Atmosphere */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-0 contain-render">
@@ -531,7 +575,12 @@ export const CinemaMode: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-4">
-          <FormatBadge format={audioFormat} codec={currentTrack.codec} />
+          <FormatBadge
+            format={audioFormat}
+            codec={currentTrack.codec}
+            sampleRate={currentTrack.sampleRate}
+            bitDepth={currentTrack.bitDepth}
+          />
           <button
             onClick={() => setCinemaModeOpen(false)}
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#141416]/80 hover:bg-[#202025] border border-[#282830] text-xs text-white font-medium transition-all duration-150 hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-md"
@@ -589,6 +638,7 @@ export const CinemaMode: React.FC = () => {
               onClick={() => toggleFavorite(currentTrack.id)}
               className="p-3 rounded-2xl bg-[#141416]/80 hover:bg-[#1E1E22] border border-[#262626] transition-all duration-150 active:scale-125 cursor-pointer group"
               title="Favorite"
+              aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
             >
               <Heart
                 className={`w-6 h-6 transition-all duration-150 ${
@@ -623,6 +673,7 @@ export const CinemaMode: React.FC = () => {
                     : { color: '#666666' }
                 }
                 title="Shuffle"
+                aria-label={isShuffle ? 'Disable shuffle' : 'Enable shuffle'}
               >
                 <Shuffle className="w-5 h-5" />
               </button>
@@ -631,6 +682,7 @@ export const CinemaMode: React.FC = () => {
                 onClick={previousTrack}
                 className="text-[#EDEDED] hover:text-white p-2.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
                 title="Previous (Left Arrow)"
+                aria-label="Previous track"
               >
                 <SkipBack className="w-6 h-6" />
               </button>
@@ -643,6 +695,7 @@ export const CinemaMode: React.FC = () => {
                   boxShadow: `0 0 24px ${accentGlow}`,
                 }}
                 title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (
                   <Pause className="w-6 h-6 fill-white" />
@@ -655,6 +708,7 @@ export const CinemaMode: React.FC = () => {
                 onClick={nextTrack}
                 className="text-[#EDEDED] hover:text-white p-2.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
                 title="Next (Right Arrow)"
+                aria-label="Next track"
               >
                 <SkipForward className="w-6 h-6" />
               </button>
@@ -671,6 +725,7 @@ export const CinemaMode: React.FC = () => {
                     : { color: '#666666' }
                 }
                 title={`Repeat: ${repeatMode}`}
+                aria-label={`Repeat mode: ${repeatMode}`}
               >
                 <Repeat className="w-5 h-5" />
               </button>
@@ -681,6 +736,7 @@ export const CinemaMode: React.FC = () => {
               <button
                 onClick={toggleMute}
                 className="text-[#A3A3A3] hover:text-white transition-colors cursor-pointer"
+                aria-label={isMuted ? 'Unmute' : 'Mute'}
               >
                 {isMuted || volume === 0 ? (
                   <VolumeX className="w-4 h-4" style={{ color: accentColor }} />
@@ -829,13 +885,13 @@ export const CinemaMode: React.FC = () => {
         </section>
       </main>
 
-      {/* 4. Bottom Bar: Audio Spectrum Waveform + Subtext */}
+      {/* 4. Bottom Bar: Ambient Visualizer + Subtext */}
       <footer
         className={`relative z-10 flex items-center justify-between transition-opacity duration-300 ${
           isIdle ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
-        <div className="px-2" title="Audio Spectrum (GPU Accelerated)">
+        <div className="px-2" title="Ambient visualizer">
           <CinemaVisualizer
             isPlaying={isPlaying}
             accentColor={accentColor}

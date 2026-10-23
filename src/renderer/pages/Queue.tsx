@@ -1,12 +1,29 @@
 import React, { useState } from 'react';
-import { Trash2, Plus, Play, Disc } from 'lucide-react';
+import { Trash2, Plus, Disc } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
 
 export const Queue: React.FC = () => {
   const { queue, queueIndex, history, currentTrack, removeFromQueue, clearQueue, playTrack } =
-    usePlayerStore();
-  const { createPlaylist, addTrackToPlaylist, setActiveView } = useLibraryStore();
+    usePlayerStore(
+      useShallow((state) => ({
+        queue: state.queue,
+        queueIndex: state.queueIndex,
+        history: state.history,
+        currentTrack: state.currentTrack,
+        removeFromQueue: state.removeFromQueue,
+        clearQueue: state.clearQueue,
+        playTrack: state.playTrack,
+      }))
+    );
+  const { createPlaylist, addTrackToPlaylist, setActiveView } = useLibraryStore(
+    useShallow((state) => ({
+      createPlaylist: state.createPlaylist,
+      addTrackToPlaylist: state.addTrackToPlaylist,
+      setActiveView: state.setActiveView,
+    }))
+  );
 
   const [activeTab, setActiveTab] = useState<'queue' | 'history'>('queue');
 
@@ -125,7 +142,16 @@ export const Queue: React.FC = () => {
               upNextTracks.map((track, idx) => (
                 <div
                   key={`${track.id}-${idx}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => playTrack(track, queue)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      playTrack(track, queue);
+                    }
+                  }}
                   className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-[#2E2E2E] p-3 rounded-xl flex items-center justify-between text-xs transition-all group cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
@@ -159,7 +185,8 @@ export const Queue: React.FC = () => {
                         e.stopPropagation();
                         removeFromQueue(queueIndex + 1 + idx);
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-[#FF4D67] hover:text-red-400 p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-[#FF4D67] hover:text-red-400 p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+                      aria-label={`Remove ${track.title} from queue`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -175,7 +202,15 @@ export const Queue: React.FC = () => {
             history.map((track, idx) => (
               <div
                 key={`${track.id}-${idx}`}
+                role="button"
+                tabIndex={0}
                 onClick={() => playTrack(track)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    playTrack(track);
+                  }
+                }}
                 className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-3 rounded-xl flex items-center justify-between text-xs transition-all duration-150 group cursor-pointer hover:-translate-y-0.5"
               >
                 <div className="flex items-center gap-3">

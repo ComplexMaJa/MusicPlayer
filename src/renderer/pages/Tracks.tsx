@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { TrackRow } from '../components/TrackRow';
 
 export const Tracks: React.FC = () => {
-  const { tracks } = useLibraryStore();
+  const tracks = useLibraryStore((state) => state.tracks);
   const [filterText, setFilterText] = useState('');
 
-  const filteredTracks = tracks.filter(
-    (t) =>
-      t.title.toLowerCase().includes(filterText.toLowerCase()) ||
-      t.artist.toLowerCase().includes(filterText.toLowerCase()) ||
-      t.album.toLowerCase().includes(filterText.toLowerCase())
-  );
+  const filteredTracks = useMemo(() => {
+    const query = filterText.toLowerCase();
+    return tracks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(query) ||
+        t.artist.toLowerCase().includes(query) ||
+        t.album.toLowerCase().includes(query)
+    );
+  }, [tracks, filterText]);
 
   return (
     <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none">

@@ -1,9 +1,11 @@
 import React from 'react';
-import { Search, Minus, Square, X, User } from 'lucide-react';
+import { Search, Minus, Square, X } from 'lucide-react';
 import { useLibraryStore } from '../stores/useLibraryStore';
 
 export const Header: React.FC = () => {
-  const { searchQuery, setSearchQuery, setActiveView } = useLibraryStore();
+  const searchQuery = useLibraryStore((state) => state.searchQuery);
+  const setSearchQuery = useLibraryStore((state) => state.setSearchQuery);
+  const setActiveView = useLibraryStore((state) => state.setActiveView);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -29,6 +31,7 @@ export const Header: React.FC = () => {
           value={searchQuery}
           onChange={handleSearchChange}
           placeholder="Search for songs, artists, albums..."
+          aria-label="Search library"
           style={{
             borderColor: searchQuery ? 'var(--accent-color, #FF2E55)' : undefined,
           }}
@@ -58,6 +61,7 @@ export const Header: React.FC = () => {
             onClick={handleMinimize}
             className="p-1.5 hover:bg-[#151515] hover:text-white rounded-lg transition-all duration-150 hover:scale-105 active:scale-95"
             title="Minimize"
+            aria-label="Minimize window"
           >
             <Minus className="w-3.5 h-3.5" />
           </button>
@@ -65,6 +69,7 @@ export const Header: React.FC = () => {
             onClick={handleMaximize}
             className="p-1.5 hover:bg-[#151515] hover:text-white rounded-lg transition-all duration-150 hover:scale-105 active:scale-95"
             title="Maximize"
+            aria-label="Maximize or restore window"
           >
             <Square className="w-3 h-3" />
           </button>
@@ -72,6 +77,7 @@ export const Header: React.FC = () => {
             onClick={handleClose}
             className="p-1.5 hover:bg-[#FF2E55] hover:text-white rounded-lg transition-all duration-150 hover:scale-105 active:scale-95"
             title="Close"
+            aria-label="Close window"
           >
             <X className="w-3.5 h-3.5" />
           </button>

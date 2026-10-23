@@ -23,18 +23,32 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { usePlayerStore } from './stores/usePlayerStore';
 
 export const App: React.FC = () => {
-  const { activeView, fetchLibraryData } = useLibraryStore();
-  const { settings, loadSettings } = useSettingsStore();
-  const { initFromSettings } = usePlayerStore();
+  const activeView = useLibraryStore((state) => state.activeView);
+  const fetchLibraryData = useLibraryStore((state) => state.fetchLibraryData);
+  const settings = useSettingsStore((state) => state.settings);
+  const loadSettings = useSettingsStore((state) => state.loadSettings);
+  const initFromSettings = usePlayerStore((state) => state.initFromSettings);
 
   useEffect(() => {
     fetchLibraryData();
     loadSettings().then((loadedSettings) => {
       if (loadedSettings) {
-        initFromSettings(loadedSettings.volume, loadedSettings.isMuted);
+        initFromSettings(
+          loadedSettings.volume,
+          loadedSettings.isMuted,
+          loadedSettings.lyricsProvider
+        );
       }
     });
-  }, []);
+
+    const unsubscribe = window.electronAPI?.onLibraryChanged?.(() => {
+      fetchLibraryData();
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [fetchLibraryData, initFromSettings, loadSettings]);
 
   const renderActiveView = () => {
     switch (activeView) {

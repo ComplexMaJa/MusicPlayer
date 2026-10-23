@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Track, AudioFormatInfo, LyricsResult, LyricProviderOption } from '../../shared/types';
+import { useSettingsStore } from './useSettingsStore';
 
 interface PlayerStoreState {
   currentTrack: Track | null;
@@ -43,6 +44,7 @@ interface PlayerStoreState {
   toggleCinemaMode: () => void;
   setCinemaModeOpen: (open: boolean) => void;
   setLyricProvider: (provider: LyricProviderOption) => Promise<void>;
+  setCurrentTrackFavorite: (trackId: string, isFavorite: boolean) => void;
   initFromSettings: (volume: number, isMuted?: boolean, lyricsProvider?: LyricProviderOption) => void;
 }
 
@@ -52,6 +54,7 @@ audio.preload = 'auto';
 export const getAudioElement = (): HTMLAudioElement => audio;
 
 let volumePersistTimer: NodeJS.Timeout | null = null;
+let lastNonZeroVolume = 0.8;
 const persistVolumeState = (volume: number, isMuted: boolean) => {
   if (volumePersistTimer) clearTimeout(volumePersistTimer);
   volumePersistTimer = setTimeout(() => {
@@ -167,7 +170,10 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
           // Fetch lyrics asynchronously using active provider
           window.electronAPI.getLyrics(track, activeLyricProvider).then((lyricsResult) => {
-            if (get().currentTrack?.id === track.id) {
+            if (
+              get().currentTrack?.id === track.id &&
+              get().activeLyricProvider === activeLyricProvider
+            ) {
               set({ lyrics: lyricsResult, isLoadingLyrics: false });
             }
           }).catch((err) => {
@@ -249,6 +255,9 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
     setVolume: (val: number) => {
       const isMuted = val === 0;
+      if (val > 0) {
+        lastNonZeroVolume = val;
+      }
       audio.volume = isMuted ? 0 : val;
       set({ volume: val, isMuted });
       persistVolumeState(val, isMuted);
@@ -257,9 +266,18 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
     toggleMute: () => {
       const { isMuted, volume } = get();
       const nextMuted = !isMuted;
-      audio.volume = nextMuted ? 0 : (volume || 0.8);
-      set({ isMuted: nextMuted });
-      persistVolumeState(volume || 0.8, nextMuted);
+
+      if (nextMuted) {
+        audio.volume = 0;
+        set({ isMuted: true });
+        persistVolumeState(volume, true);
+        return;
+      }
+
+      const restoredVolume = volume > 0 ? volume : lastNonZeroVolume;
+      audio.volume = restoredVolume;
+      set({ volume: restoredVolume, isMuted: false });
+      persistVolumeState(restoredVolume, false);
     },
 
     nextTrack: () => {
@@ -367,16 +385,32 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
 
     setLyricProvider: async (provider: LyricProviderOption) => {
       set({ activeLyricProvider: provider, isLoadingLyrics: true });
+
+      if (window.electronAPI) {
+        try {
+          const updated = await window.electronAPI.saveSettings({ lyricsProvider: provider });
+          useSettingsStore.setState({ settings: updated });
+        } catch (err) {
+          console.warn('Failed to persist lyric provider:', err);
+        }
+      }
+
       const { currentTrack } = get();
       if (currentTrack && window.electronAPI) {
         try {
           const lyricsResult = await window.electronAPI.getLyrics(currentTrack, provider);
-          if (get().currentTrack?.id === currentTrack.id) {
+          if (
+            get().currentTrack?.id === currentTrack.id &&
+            get().activeLyricProvider === provider
+          ) {
             set({ lyrics: lyricsResult, isLoadingLyrics: false });
           }
         } catch (err) {
           console.warn('Failed to switch lyric provider:', err);
-          if (get().currentTrack?.id === currentTrack.id) {
+          if (
+            get().currentTrack?.id === currentTrack.id &&
+            get().activeLyricProvider === provider
+          ) {
             set({ isLoadingLyrics: false });
           }
         }
@@ -385,9 +419,19 @@ export const usePlayerStore = create<PlayerStoreState>((set, get) => {
       }
     },
 
+    setCurrentTrackFavorite: (trackId: string, isFavorite: boolean) => {
+      set((state) => {
+        if (state.currentTrack?.id !== trackId) return {};
+        return { currentTrack: { ...state.currentTrack, isFavorite } };
+      });
+    },
+
     initFromSettings: (volume: number, isMuted?: boolean, lyricsProvider?: LyricProviderOption) => {
       const safeVol = typeof volume === 'number' && !isNaN(volume) ? Math.max(0, Math.min(1, volume)) : 0.8;
       const muted = Boolean(isMuted);
+      if (safeVol > 0) {
+        lastNonZeroVolume = safeVol;
+      }
       audio.volume = muted ? 0 : safeVol;
       set({
         volume: safeVol,

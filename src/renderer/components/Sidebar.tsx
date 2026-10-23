@@ -10,6 +10,7 @@ import {
   Settings as SettingsIcon,
   Sparkles,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { ViewMode } from '../../shared/types';
 
@@ -20,7 +21,15 @@ export const Sidebar: React.FC = () => {
     playlists,
     selectedPlaylistId,
     setSelectedPlaylistId,
-  } = useLibraryStore();
+  } = useLibraryStore(
+    useShallow((state) => ({
+      activeView: state.activeView,
+      setActiveView: state.setActiveView,
+      playlists: state.playlists,
+      selectedPlaylistId: state.selectedPlaylistId,
+      setSelectedPlaylistId: state.setSelectedPlaylistId,
+    }))
+  );
 
   const navItems: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Now Playing', icon: <Disc className="w-4 h-4" /> },

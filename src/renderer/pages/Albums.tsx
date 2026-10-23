@@ -3,7 +3,7 @@ import { useLibraryStore } from '../stores/useLibraryStore';
 import { AlbumCard } from '../components/AlbumCard';
 
 export const Albums: React.FC = () => {
-  const { albums } = useLibraryStore();
+  const albums = useLibraryStore((state) => state.albums);
 
   return (
     <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none">

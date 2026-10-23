@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Play, Trash2, Disc, ListMusic, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { usePlayerStore } from '../stores/usePlayerStore';
-import { Playlist, Track } from '../../shared/types';
+import { Track } from '../../shared/types';
 import { TrackRow } from '../components/TrackRow';
 
 export const Playlists: React.FC = () => {
@@ -13,8 +14,17 @@ export const Playlists: React.FC = () => {
     removeTrackFromPlaylist,
     selectedPlaylistId,
     setSelectedPlaylistId,
-  } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
+  } = useLibraryStore(
+    useShallow((state) => ({
+      playlists: state.playlists,
+      createPlaylist: state.createPlaylist,
+      deletePlaylist: state.deletePlaylist,
+      removeTrackFromPlaylist: state.removeTrackFromPlaylist,
+      selectedPlaylistId: state.selectedPlaylistId,
+      setSelectedPlaylistId: state.setSelectedPlaylistId,
+    }))
+  );
+  const playTrack = usePlayerStore((state) => state.playTrack);
 
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
@@ -46,6 +56,11 @@ export const Playlists: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
+    const playlist = playlists.find((entry) => entry.id === id);
+    if (!window.confirm(`Delete playlist "${playlist?.name ?? 'this playlist'}"?`)) {
+      return;
+    }
+
     await deletePlaylist(id);
     const remaining = playlists.filter((p) => p.id !== id);
     if (remaining.length > 0) {
@@ -101,13 +116,29 @@ export const Playlists: React.FC = () => {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-2xl p-6 w-96 flex flex-col gap-4 shadow-2xl animate-pageTransition">
+        <div
+          className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowCreateModal(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setShowCreateModal(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-playlist-title"
+            className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-2xl p-6 w-96 flex flex-col gap-4 shadow-2xl animate-pageTransition"
+          >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-white">Create New Playlist</h3>
+              <h3 id="create-playlist-title" className="text-base font-bold text-white">
+                Create New Playlist
+              </h3>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="text-[#666666] hover:text-white p-1 rounded-full hover:bg-[#151515] transition-all hover:scale-110 active:scale-90"
+                aria-label="Close create playlist dialog"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -167,10 +198,11 @@ export const Playlists: React.FC = () => {
         {playlists.map((pl) => {
           const isSelected = activePlaylist?.id === pl.id;
           return (
-            <div
+            <button
+              type="button"
               key={pl.id}
               onClick={() => setSelectedPlaylistId(pl.id)}
-              className={`p-4 rounded-2xl border flex flex-col gap-2 transition-all duration-200 ease-out cursor-pointer select-none group ${
+              className={`w-full text-left p-4 rounded-2xl border flex flex-col gap-2 transition-all duration-200 ease-out cursor-pointer select-none group ${
                 isSelected
                   ? 'bg-[#101010] -translate-y-0.5'
                   : 'bg-[#0A0A0A] border-[#1A1A1A] hover:-translate-y-1'
@@ -204,7 +236,7 @@ export const Playlists: React.FC = () => {
               {pl.description && (
                 <p className="text-[11px] text-[#A3A3A3] truncate font-light">{pl.description}</p>
               )}
-            </div>
+            </button>
           );
         })}
       </div>

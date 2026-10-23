@@ -236,17 +236,12 @@ export async function getAudioFormatInfo(filePath: string): Promise<AudioFormatI
     const channels = format.numberOfChannels || 2;
     const bitrate = format.bitrate ? Math.round(format.bitrate / 1000) : undefined;
 
-    const isBitPerfect = codec === 'FLAC' || codec === 'WAV';
-
     return {
       codec,
       sampleRate,
       bitDepth,
       channels,
       bitrate,
-      outputDevice: 'Default (WASAPI)',
-      outputMode: isBitPerfect ? 'WASAPI Shared' : 'Default',
-      isBitPerfect,
     };
   } catch (err) {
     console.error('Error reading format info:', err);
@@ -255,9 +250,6 @@ export async function getAudioFormatInfo(filePath: string): Promise<AudioFormatI
       sampleRate: 44100,
       bitDepth: 16,
       channels: 2,
-      outputDevice: 'Default (WASAPI)',
-      outputMode: 'WASAPI Shared',
-      isBitPerfect: false,
     };
   }
 }

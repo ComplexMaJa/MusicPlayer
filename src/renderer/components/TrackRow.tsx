@@ -11,12 +11,17 @@ interface TrackRowProps {
 }
 
 export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }) => {
-  const { currentTrack, isPlaying, playTrack, togglePlay } = usePlayerStore();
-  const { toggleFavorite, playlists, addTrackToPlaylist } = useLibraryStore();
+  const isCurrent = usePlayerStore((state) => state.currentTrack?.id === track.id);
+  const isCurrentPlaying = usePlayerStore(
+    (state) => state.currentTrack?.id === track.id && state.isPlaying
+  );
+  const playTrack = usePlayerStore((state) => state.playTrack);
+  const togglePlay = usePlayerStore((state) => state.togglePlay);
+  const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const playlists = useLibraryStore((state) => state.playlists);
+  const addTrackToPlaylist = useLibraryStore((state) => state.addTrackToPlaylist);
   const [showPlaylistMenu, setShowPlaylistMenu] = useState(false);
   const [addedPlaylistId, setAddedPlaylistId] = useState<string | null>(null);
-
-  const isCurrent = currentTrack?.id === track.id;
 
   const formatDuration = (secs: number) => {
     if (!secs || isNaN(secs)) return '0:00';
@@ -45,7 +50,16 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={handleRowClick}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          handleRowClick();
+        }
+      }}
       className={`grid grid-cols-12 items-center px-4 py-2.5 rounded-xl text-xs transition-all duration-150 ease-out group cursor-pointer select-none border relative ${
         isCurrent
           ? 'bg-[#101010] text-white shadow-sm'
@@ -63,7 +77,7 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
       <div className="col-span-1 flex items-center justify-start text-[#666666] font-mono text-xs">
         {isCurrent ? (
           <div className="flex items-center gap-1">
-            {isPlaying ? (
+            {isCurrentPlaying ? (
               <Pause
                 className="w-3.5 h-3.5 animate-pulse"
                 style={{
@@ -140,8 +154,9 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
               e.stopPropagation();
               setShowPlaylistMenu(!showPlaylistMenu);
             }}
-            className="opacity-0 group-hover:opacity-100 text-[#666666] hover:text-white p-1 rounded hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-[#666666] hover:text-white p-1 rounded hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
             title="Add to playlist"
+            aria-label={`Add ${track.title} to a playlist`}
           >
             <ListPlus className="w-3.5 h-3.5" />
           </button>
@@ -174,8 +189,9 @@ export const TrackRow: React.FC<TrackRowProps> = ({ track, index, queueContext }
             e.stopPropagation();
             toggleFavorite(track.id);
           }}
-          className="opacity-0 group-hover:opacity-100 text-[#666666] p-1 rounded hover:bg-[#151515] transition-all duration-150 hover:scale-125 active:scale-90"
+          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-[#666666] p-1 rounded hover:bg-[#151515] transition-all duration-150 hover:scale-125 active:scale-90"
           title="Favorite"
+          aria-label={`${track.isFavorite ? 'Remove' : 'Add'} ${track.title} ${track.isFavorite ? 'from' : 'to'} favorites`}
         >
           <Heart
             className={`w-3.5 h-3.5 transition-all duration-200 ${

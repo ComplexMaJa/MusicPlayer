@@ -1,11 +1,24 @@
 import React from 'react';
 import { FolderPlus, RefreshCw, Music, Album as AlbumIcon, Users, Clock } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export const Library: React.FC = () => {
-  const { stats, scanProgress, scanFolders, setActiveView } = useLibraryStore();
-  const { settings, updateSettings } = useSettingsStore();
+  const { stats, scanProgress, scanFolders, setActiveView } = useLibraryStore(
+    useShallow((state) => ({
+      stats: state.stats,
+      scanProgress: state.scanProgress,
+      scanFolders: state.scanFolders,
+      setActiveView: state.setActiveView,
+    }))
+  );
+  const { settings, updateSettings } = useSettingsStore(
+    useShallow((state) => ({
+      settings: state.settings,
+      updateSettings: state.updateSettings,
+    }))
+  );
 
   const handleAddFolder = async () => {
     if (!window.electronAPI) return;

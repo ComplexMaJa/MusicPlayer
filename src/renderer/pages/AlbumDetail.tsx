@@ -6,8 +6,9 @@ import { Album, Track } from '../../shared/types';
 import { TrackRow } from '../components/TrackRow';
 
 export const AlbumDetail: React.FC = () => {
-  const { selectedAlbumId, setActiveView } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
+  const selectedAlbumId = useLibraryStore((state) => state.selectedAlbumId);
+  const setActiveView = useLibraryStore((state) => state.setActiveView);
+  const playTrack = usePlayerStore((state) => state.playTrack);
   const [albumData, setAlbumData] = useState<(Album & { tracks: Track[] }) | null>(null);
 
   useEffect(() => {

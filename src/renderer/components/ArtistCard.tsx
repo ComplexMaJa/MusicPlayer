@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Disc } from 'lucide-react';
+import { User } from 'lucide-react';
 import { Artist } from '../../shared/types';
 import { useLibraryStore } from '../stores/useLibraryStore';
 
@@ -8,7 +8,8 @@ interface ArtistCardProps {
 }
 
 export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
-  const { setSelectedArtistId, setActiveView } = useLibraryStore();
+  const setSelectedArtistId = useLibraryStore((state) => state.setSelectedArtistId);
+  const setActiveView = useLibraryStore((state) => state.setActiveView);
 
   const handleClick = () => {
     setSelectedArtistId(artist.id);
@@ -16,9 +17,10 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
   };
 
   return (
-    <div
+    <button
+      type="button"
       onClick={handleClick}
-      className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-4 rounded-2xl flex flex-col items-center text-center gap-3 transition-all duration-200 ease-out group cursor-pointer select-none hover:-translate-y-1"
+      className="w-full bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-4 rounded-2xl flex flex-col items-center text-center gap-3 transition-all duration-200 ease-out group cursor-pointer select-none hover:-translate-y-1"
     >
       <div className="w-24 h-24 rounded-full overflow-hidden bg-[#101010] border border-[#1A1A1A] relative shadow-lg transition-all duration-300">
         {artist.artworkPath ? (
@@ -41,6 +43,6 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
           {artist.albumCount} {artist.albumCount === 1 ? 'ALBUM' : 'ALBUMS'} • {artist.trackCount} TRACKS
         </p>
       </div>
-    </div>
+    </button>
   );
 };

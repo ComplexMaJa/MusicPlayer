@@ -220,8 +220,8 @@ export async function initDatabase(): Promise<Database> {
   return db;
 }
 
-export function saveDatabase(): void {
-  if (!db || !dbPath) return;
+export function saveDatabase(): boolean {
+  if (!db || !dbPath) return false;
 
   const backupPath = getBackupPath();
   const tempPath = `${dbPath}.tmp-${process.pid}`;
@@ -254,6 +254,7 @@ export function saveDatabase(): void {
 
     fs.renameSync(tempPath, dbPath);
     tempExists = false;
+    return true;
   } catch (err) {
     console.error('Error saving SQLite database:', err);
 
@@ -272,6 +273,8 @@ export function saveDatabase(): void {
         // Nothing else we can do here.
       }
     }
+
+    return false;
   }
 }
 
@@ -346,6 +349,13 @@ export function getAllTracks(): Track[] {
   if (!res.length) return [];
   const columns = res[0].columns;
   return res[0].values.map((row) => mapRowToTrack(columns, row));
+}
+
+export function getAllArtworkPaths(): string[] {
+  if (!db) return [];
+  const res = db.exec(`SELECT artworkPath FROM tracks WHERE artworkPath IS NOT NULL`);
+  if (!res.length) return [];
+  return res[0].values.map((row) => String(row[0]));
 }
 
 export function getRecentlyPlayed(): Track[] {

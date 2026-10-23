@@ -18,10 +18,14 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   description,
 }) => {
   return (
-    <div
-      onClick={() => !disabled && onChange(!checked)}
-      className={`flex items-center justify-between cursor-pointer select-none group ${
-        disabled ? 'opacity-50 cursor-not-allowed' : ''
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`w-full text-left flex items-center justify-between select-none group ${
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
       } ${className}`}
     >
       {(label || description) && (
@@ -59,6 +63,6 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </button>
   );
 };

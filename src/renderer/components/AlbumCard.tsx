@@ -8,7 +8,8 @@ interface AlbumCardProps {
 }
 
 export const AlbumCard: React.FC<AlbumCardProps> = ({ album }) => {
-  const { setSelectedAlbumId, setActiveView } = useLibraryStore();
+  const setSelectedAlbumId = useLibraryStore((state) => state.setSelectedAlbumId);
+  const setActiveView = useLibraryStore((state) => state.setActiveView);
 
   const handleClick = () => {
     setSelectedAlbumId(album.id);
@@ -16,9 +17,10 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album }) => {
   };
 
   return (
-    <div
+    <button
+      type="button"
       onClick={handleClick}
-      className="bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-3 rounded-2xl flex flex-col gap-3 transition-all duration-200 ease-out group cursor-pointer select-none hover:-translate-y-1"
+      className="w-full text-left bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-3 rounded-2xl flex flex-col gap-3 transition-all duration-200 ease-out group cursor-pointer select-none hover:-translate-y-1"
     >
       <div className="aspect-square rounded-xl overflow-hidden bg-[#101010] relative shadow-md">
         {album.artworkPath ? (
@@ -53,6 +55,6 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album }) => {
         </h4>
         <p className="text-[11px] text-[#A3A3A3] truncate mt-0.5">{album.artist}</p>
       </div>
-    </div>
+    </button>
   );
 };

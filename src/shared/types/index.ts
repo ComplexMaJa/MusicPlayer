@@ -58,9 +58,6 @@ export interface AudioFormatInfo {
   bitDepth: number;
   channels: number;
   bitrate?: number;
-  outputDevice: string;
-  outputMode: 'WASAPI Shared' | 'WASAPI Exclusive' | 'DirectSound' | 'Default';
-  isBitPerfect: boolean;
 }
 
 export type LyricProviderOption = 'auto' | 'online' | 'embedded' | 'local';
@@ -113,12 +110,6 @@ export interface ScanProgress {
 
 export interface Settings {
   musicFolders: string[];
-  outputDevice: string;
-  outputMode: 'WASAPI Shared' | 'WASAPI Exclusive';
-  exclusiveMode: boolean;
-  gaplessPlayback: boolean;
-  rememberPlaybackPosition: boolean;
-  normalizeVolume: boolean;
   volume: number;
   isMuted?: boolean;
   discordEnabled: boolean;
@@ -128,7 +119,6 @@ export interface Settings {
   discordLargeImage?: string;
   discordLargeImageText?: string;
   discordActivityType?: 'listening' | 'playing';
-  amoledMode: boolean;
   accentColor: string;
   customBackgroundEnabled?: boolean;
   customBackgroundUrl?: string;
@@ -136,10 +126,7 @@ export interface Settings {
   customBackgroundBlur?: number;
   customBackgroundFit?: 'cover' | 'contain' | 'tile';
   reducedMotion: boolean;
-  startMinimized: boolean;
   lyricsProvider?: LyricProviderOption;
-  lastPlayedTrackId?: string;
-  lastPlayedPosition?: number;
 }
 
 export type ViewMode =

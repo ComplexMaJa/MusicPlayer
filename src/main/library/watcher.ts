@@ -62,8 +62,8 @@ class FolderWatcherManager {
       if (!this.watchers.has(folder) && fs.existsSync(folder)) {
         try {
           // Use recursive watch where supported (Windows/macOS)
-          const watcher = fs.watch(folder, { recursive: true }, (eventType, filename) => {
-            this.handleFsEvent(folder, eventType, filename);
+          const watcher = fs.watch(folder, { recursive: true }, (_eventType, filename) => {
+            this.handleFsEvent(filename);
           });
           watcher.on('error', (err) => {
             console.warn(`Watcher error for ${folder}:`, err);
@@ -76,7 +76,7 @@ class FolderWatcherManager {
     }
   }
 
-  private handleFsEvent(folder: string, eventType: string, filename: string | null): void {
+  private handleFsEvent(filename: string | null): void {
     if (filename) {
       const ext = path.extname(filename).toLowerCase();
       // If it's a file with an extension not in SUPPORTED_EXTENSIONS, ignore (unless empty ext like a directory rename)
@@ -95,6 +95,14 @@ class FolderWatcherManager {
       this.isScanning = true;
       try {
         await scanFolders(this.currentFolders, this.mainWindow);
+
+        if (
+          this.mainWindow &&
+          !this.mainWindow.isDestroyed() &&
+          !this.mainWindow.webContents.isDestroyed()
+        ) {
+          this.mainWindow.webContents.send('library:changed');
+        }
       } catch (err) {
         console.error('Error during auto-rescan triggered by file watcher:', err);
       } finally {

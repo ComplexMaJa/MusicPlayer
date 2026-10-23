@@ -7,8 +7,9 @@ import { TrackRow } from '../components/TrackRow';
 import { AlbumCard } from '../components/AlbumCard';
 
 export const ArtistDetail: React.FC = () => {
-  const { selectedArtistId, setActiveView } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
+  const selectedArtistId = useLibraryStore((state) => state.selectedArtistId);
+  const setActiveView = useLibraryStore((state) => state.setActiveView);
+  const playTrack = usePlayerStore((state) => state.playTrack);
   const [data, setData] = useState<{ artist: Artist; albums: Album[]; tracks: Track[] } | null>(null);
 
   useEffect(() => {

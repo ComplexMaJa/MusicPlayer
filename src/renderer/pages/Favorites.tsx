@@ -5,8 +5,8 @@ import { usePlayerStore } from '../stores/usePlayerStore';
 import { TrackRow } from '../components/TrackRow';
 
 export const Favorites: React.FC = () => {
-  const { favorites } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
+  const favorites = useLibraryStore((state) => state.favorites);
+  const playTrack = usePlayerStore((state) => state.playTrack);
 
   const handlePlayAll = () => {
     if (favorites.length > 0) {
