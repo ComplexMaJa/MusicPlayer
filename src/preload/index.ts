@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { Track, Album, Artist, Playlist, Settings, ScanProgress, LibraryStats, AudioFormatInfo } from '../shared/types';
+import {
+  Track,
+  Album,
+  Artist,
+  Playlist,
+  Settings,
+  ScanProgress,
+  LibraryStats,
+  AudioFormatInfo,
+  LyricsResult,
+  LyricProviderOption,
+} from '../shared/types';
 
 export const electronAPI = {
   // Folder & Scanning
@@ -10,6 +21,11 @@ export const electronAPI = {
     const handler = (_event: unknown, progress: ScanProgress) => callback(progress);
     ipcRenderer.on('library:scanProgress', handler);
     return () => ipcRenderer.removeListener('library:scanProgress', handler);
+  },
+  onLibraryChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('library:changed', handler);
+    return () => ipcRenderer.removeListener('library:changed', handler);
   },
   getLibraryStats: (): Promise<LibraryStats> => ipcRenderer.invoke('library:getStats'),
 
@@ -43,6 +59,8 @@ export const electronAPI = {
     ipcRenderer.invoke('audio:getFormat', filePath),
   readAudioStreamUrl: (filePath: string): string =>
     `maja-audio://stream?path=${encodeURIComponent(filePath)}`,
+  getLyrics: (track: Track, provider?: LyricProviderOption): Promise<LyricsResult | null> =>
+    ipcRenderer.invoke('lyrics:getForTrack', track, provider),
 
   // Settings
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),

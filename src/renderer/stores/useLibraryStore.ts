@@ -8,6 +8,7 @@ import {
   ScanProgress,
   ViewMode,
 } from '../../shared/types';
+import { usePlayerStore } from './usePlayerStore';
 
 interface LibraryStoreState {
   tracks: Track[];
@@ -94,28 +95,60 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
 
   scanFolders: async (folders: string[]) => {
     if (!window.electronAPI) return;
+
+    const unsubscribe = window.electronAPI.onScanProgress((progress) => {
+      set({ scanProgress: progress });
+    });
+
     try {
-      const unsubscribe = window.electronAPI.onScanProgress((progress) => {
-        set({ scanProgress: progress });
-        if (!progress.isScanning) {
-          get().fetchLibraryData();
-        }
-      });
       await window.electronAPI.scanLibrary(folders);
       await get().fetchLibraryData();
-      unsubscribe();
     } catch (err) {
       console.error('Error scanning folders:', err);
+    } finally {
+      unsubscribe();
     }
   },
 
   toggleFavorite: async (trackId: string) => {
     if (!window.electronAPI) return;
     const isFav = await window.electronAPI.toggleFavorite(trackId);
-    set((state) => ({
-      tracks: state.tracks.map((t) => (t.id === trackId ? { ...t, isFavorite: isFav } : t)),
-    }));
-    await get().fetchLibraryData();
+    const currentPlaying = usePlayerStore.getState().currentTrack;
+    const existing = get().tracks.find((track) => track.id === trackId);
+    const foundTrack =
+      existing ??
+      get().favorites.find((track) => track.id === trackId) ??
+      get().recentlyPlayed.find((track) => track.id === trackId) ??
+      get().recentlyAdded.find((track) => track.id === trackId) ??
+      (currentPlaying?.id === trackId ? currentPlaying : undefined);
+
+    set((state) => {
+      const updateTrack = (track: Track): Track =>
+        track.id === trackId ? { ...track, isFavorite: isFav } : track;
+
+      const favorites = isFav
+        ? state.favorites.some((track) => track.id === trackId)
+          ? state.favorites.map(updateTrack)
+          : foundTrack
+            ? [...state.favorites, { ...foundTrack, isFavorite: true }]
+            : state.favorites
+        : state.favorites.filter((track) => track.id !== trackId);
+
+      return {
+        tracks: state.tracks.map(updateTrack),
+        favorites,
+        recentlyPlayed: state.recentlyPlayed.map(updateTrack),
+        recentlyAdded: state.recentlyAdded.map(updateTrack),
+      };
+    });
+
+    usePlayerStore.getState().setCurrentTrackFavorite(trackId, isFav);
+
+    // Normally every playable track is in `tracks`; refresh only in the rare
+    // case where it is not so the Favorites view cannot drift.
+    if (!foundTrack) {
+      await get().fetchLibraryData();
+    }
   },
 
   createPlaylist: async (name: string, description?: string) => {

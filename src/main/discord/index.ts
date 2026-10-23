@@ -9,9 +9,11 @@ let ipcSocket: net.Socket | null = null;
 let isConnected = false;
 let isHandshakeComplete = false;
 let reconnectTimer: NodeJS.Timeout | null = null;
-let currentPipeIndex = 0;
 let lastSentTime = 0;
 let pendingUpdateTimer: NodeJS.Timeout | null = null;
+let receiveBuffer = Buffer.alloc(0);
+
+const MAX_RPC_PACKET_SIZE = 8 * 1024 * 1024;
 
 let lastState: {
   track: Track | null;
@@ -29,7 +31,7 @@ let lastState: {
   showTrack: true,
   showElapsed: true,
   largeImage: 'logo',
-  largeImageText: 'MaJa Player (Lossless Audio)',
+  largeImageText: 'MaJa Player',
   activityType: 'listening',
 };
 
@@ -48,7 +50,6 @@ export function initDiscordRPC(clientId?: string): void {
   } else {
     currentClientId = DEFAULT_DISCORD_CLIENT_ID;
   }
-  currentPipeIndex = 0;
   connectToDiscord(0);
 }
 
@@ -57,7 +58,6 @@ export function setDiscordClientId(clientId: string): void {
   if (targetId === currentClientId && isConnected) return;
   currentClientId = targetId;
   disconnect();
-  currentPipeIndex = 0;
   connectToDiscord(0);
 }
 
@@ -77,6 +77,7 @@ export function disconnect(): void {
   }
   isConnected = false;
   isHandshakeComplete = false;
+  receiveBuffer = Buffer.alloc(0);
 }
 
 function connectToDiscord(pipeId: number): void {
@@ -84,26 +85,26 @@ function connectToDiscord(pipeId: number): void {
     if (!isConnected && pipeId > 9) {
       // Re-scan from pipe 0 after a cooldown
       reconnectTimer = setTimeout(() => {
-        currentPipeIndex = 0;
         connectToDiscord(0);
       }, 5000);
     }
     return;
   }
 
-  currentPipeIndex = pipeId;
   const pipePath = getPipePath(pipeId);
 
   try {
     const socket = net.connect(pipePath, () => {
       ipcSocket = socket;
       isConnected = true;
+      receiveBuffer = Buffer.alloc(0);
       sendHandshake();
     });
 
     socket.on('data', (data: Buffer | string) => {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-      handleSocketData(buf);
+      receiveBuffer = Buffer.concat([receiveBuffer, buf]);
+      processIncomingPackets();
     });
 
     socket.on('error', () => {
@@ -121,7 +122,7 @@ function connectToDiscord(pipeId: number): void {
   }
 }
 
-function sendPacket(op: number, data: object): void {
+function sendPacket(op: number, data: unknown): void {
   if (!ipcSocket || !isConnected) return;
   try {
     const payload = JSON.stringify(data);
@@ -143,15 +144,49 @@ function sendHandshake(): void {
   });
 }
 
-function handleSocketData(data: Buffer): void {
-  try {
-    if (data.length < 8) return;
-    const op = data.readInt32LE(0);
-    const len = data.readInt32LE(4);
-    if (data.length < 8 + len) return;
+function processIncomingPackets(): void {
+  while (receiveBuffer.length >= 8) {
+    const op = receiveBuffer.readInt32LE(0);
+    const len = receiveBuffer.readInt32LE(4);
 
-    const payloadStr = data.toString('utf8', 8, 8 + len);
-    const payload = JSON.parse(payloadStr);
+    if (len < 0 || len > MAX_RPC_PACKET_SIZE) {
+      console.warn(`Discord RPC sent an invalid packet length: ${len}`);
+      disconnect();
+      return;
+    }
+
+    if (receiveBuffer.length < 8 + len) {
+      return;
+    }
+
+    const payload = receiveBuffer.subarray(8, 8 + len);
+    receiveBuffer = receiveBuffer.subarray(8 + len);
+    handleIncomingPacket(op, payload);
+  }
+}
+
+function handleIncomingPacket(op: number, payloadBuffer: Buffer): void {
+  // Discord sends PING frames that must be answered with a PONG carrying the
+  // same payload, even before the READY handshake completes.
+  if (op === 3) {
+    let payload: unknown = {};
+    if (payloadBuffer.length > 0) {
+      try {
+        payload = JSON.parse(payloadBuffer.toString('utf8'));
+      } catch {
+        // Keep an empty object for malformed PING payloads.
+      }
+    }
+    sendPacket(4, payload);
+    return;
+  }
+
+  if (op !== 1) {
+    return;
+  }
+
+  try {
+    const payload = JSON.parse(payloadBuffer.toString('utf8'));
 
     if (payload.cmd === 'DISPATCH' && payload.evt === 'READY') {
       isHandshakeComplete = true;
@@ -160,12 +195,12 @@ function handleSocketData(data: Buffer): void {
       }
     }
   } catch (err) {
-    // Ignore packet parse errors
+    // Ignore malformed application frames.
   }
 }
 
 export function formatTrackAudioSpecs(track: Track): string {
-  const codec = (track.codec || 'FLAC').toUpperCase();
+  const codec = (track.codec || 'AUDIO').toUpperCase();
   const parts: string[] = [codec];
 
   if (track.bitDepth) {
@@ -227,7 +262,6 @@ function dispatchPresence(): void {
   const resolvedHover =
     largeImageText &&
     largeImageText.trim() !== '' &&
-    largeImageText !== 'MaJa Player (Lossless Audio)' &&
     largeImageText !== 'MaJa Player'
       ? largeImageText.trim()
       : audioSpecs;

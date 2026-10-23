@@ -16,22 +16,32 @@ export const FormatBadge: React.FC<FormatBadgeProps> = ({
   bitDepth,
   className = '',
 }) => {
-  const displayCodec = format?.codec || codec || 'FLAC';
-  const displayRate = format?.sampleRate ? `${format.sampleRate / 1000}kHz` : sampleRate ? `${sampleRate / 1000}kHz` : '96kHz';
-  const displayDepth = format?.bitDepth ? `${format.bitDepth}bit` : bitDepth ? `${bitDepth}bit` : '24bit';
-  const isBitPerfect = format?.isBitPerfect ?? (displayCodec === 'FLAC');
+  const displayCodec = format?.codec || codec || 'AUDIO';
+  const resolvedRate = format?.sampleRate || sampleRate;
+  const resolvedDepth = format?.bitDepth || bitDepth;
+
+  const displayRate = resolvedRate
+    ? `${(resolvedRate / 1000) % 1 === 0 ? resolvedRate / 1000 : (resolvedRate / 1000).toFixed(1)}kHz`
+    : null;
+  const displayDepth = resolvedDepth ? `${resolvedDepth}bit` : null;
 
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono tracking-wider border transition-all ${
-      isBitPerfect 
-        ? 'bg-[#151515] border-[#FF2E55]/30 text-[#FF2E55]' 
-        : 'bg-[#101010] border-[#242424] text-[#A3A3A3]'
-    } ${className}`}>
+    <div
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono tracking-wider border bg-[#101012] border-[#242428] text-[#A3A3A3] transition-all select-none shrink-0 ${className}`}
+    >
       <span className="font-semibold">{displayCodec}</span>
-      <span className="opacity-40">•</span>
-      <span>{displayDepth}</span>
-      <span className="opacity-40">•</span>
-      <span>{displayRate}</span>
+      {displayDepth && (
+        <>
+          <span className="opacity-40">•</span>
+          <span>{displayDepth}</span>
+        </>
+      )}
+      {displayRate && (
+        <>
+          <span className="opacity-40">•</span>
+          <span>{displayRate}</span>
+        </>
+      )}
     </div>
   );
 };

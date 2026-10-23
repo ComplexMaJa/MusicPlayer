@@ -10,7 +10,9 @@ import {
   List,
   Maximize2,
   Disc,
+  Mic2,
 } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { FormatBadge } from './FormatBadge';
@@ -37,13 +39,37 @@ export const MiniPlayer: React.FC = () => {
     toggleShuffle,
     toggleRepeatMode,
     toggleNowPlayingDrawer,
-  } = usePlayerStore();
+    toggleCinemaMode,
+  } = usePlayerStore(
+    useShallow((state) => ({
+      currentTrack: state.currentTrack,
+      isPlaying: state.isPlaying,
+      currentTime: state.currentTime,
+      duration: state.duration,
+      volume: state.volume,
+      isMuted: state.isMuted,
+      isShuffle: state.isShuffle,
+      repeatMode: state.repeatMode,
+      audioFormat: state.audioFormat,
+      togglePlay: state.togglePlay,
+      seek: state.seek,
+      setVolume: state.setVolume,
+      toggleMute: state.toggleMute,
+      nextTrack: state.nextTrack,
+      previousTrack: state.previousTrack,
+      toggleShuffle: state.toggleShuffle,
+      toggleRepeatMode: state.toggleRepeatMode,
+      toggleNowPlayingDrawer: state.toggleNowPlayingDrawer,
+      toggleCinemaMode: state.toggleCinemaMode,
+    }))
+  );
 
-  const { toggleFavorite, setActiveView } = useLibraryStore();
+  const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const setActiveView = useLibraryStore((state) => state.setActiveView);
 
   if (!currentTrack) {
     return (
-      <div className="h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between text-xs text-[#666666] select-none shrink-0">
+      <div className="mini-player-bar h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between text-xs text-[#666666] select-none shrink-0 transition-colors duration-300">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded bg-[#0A0A0A] border border-[#1A1A1A] flex items-center justify-center">
             <Disc className="w-5 h-5 text-[#333333]" />
@@ -58,9 +84,9 @@ export const MiniPlayer: React.FC = () => {
   }
 
   return (
-    <div className="h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between select-none shrink-0 relative z-20">
+    <div className="mini-player-bar h-20 bg-[#050505] border-t border-[#1A1A1A] px-6 flex items-center justify-between select-none shrink-0 relative z-20 transition-colors duration-300">
       {/* Left Track Info */}
-      <div className="flex items-center gap-3 w-1/4 min-w-[200px]">
+      <div className="flex items-center gap-3 flex-1 min-w-[220px] max-w-sm">
         <div className="relative w-12 h-12 rounded overflow-hidden bg-[#0A0A0A] border border-[#1A1A1A] shrink-0 group">
           {currentTrack.artworkPath ? (
             <img
@@ -70,18 +96,27 @@ export const MiniPlayer: React.FC = () => {
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#101010] to-[#050505]">
-              <Disc className="w-5 h-5 text-[#FF2E55]" />
+              <Disc className="w-5 h-5 text-accent" />
             </div>
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-white truncate">{currentTrack.title}</p>
+        <div className="min-w-0 flex-1 flex flex-col justify-center">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-xs font-medium text-white truncate">{currentTrack.title}</p>
+            <FormatBadge
+              format={audioFormat}
+              codec={currentTrack.codec}
+              sampleRate={currentTrack.sampleRate}
+              bitDepth={currentTrack.bitDepth}
+            />
+          </div>
           <p className="text-[11px] text-[#A3A3A3] truncate">{currentTrack.artist}</p>
         </div>
         <button
           onClick={() => toggleFavorite(currentTrack.id)}
-          className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav"
+          className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav shrink-0"
           title="Favorite"
+          aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
         >
           <Heart
             className={`w-4 h-4 transition-all duration-200 ${
@@ -97,7 +132,7 @@ export const MiniPlayer: React.FC = () => {
       </div>
 
       {/* Center Controls & Progress */}
-      <div className="flex flex-col items-center gap-1.5 w-2/4 max-w-xl px-4">
+      <div className="flex flex-col items-center gap-1.5 w-full max-w-lg px-4 shrink-0">
         <div className="flex items-center gap-4">
           <button
             onClick={toggleShuffle}
@@ -111,6 +146,7 @@ export const MiniPlayer: React.FC = () => {
                 : { color: '#666666' }
             }
             title="Shuffle"
+            aria-label={isShuffle ? 'Disable shuffle' : 'Enable shuffle'}
           >
             <Shuffle className="w-3.5 h-3.5" />
           </button>
@@ -118,17 +154,19 @@ export const MiniPlayer: React.FC = () => {
             onClick={previousTrack}
             className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
             title="Previous"
+            aria-label="Previous track"
           >
             <SkipBack className="w-4 h-4" />
           </button>
           <button
             onClick={togglePlay}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-lg"
             style={{
               backgroundColor: 'var(--accent-color, #FF2E55)',
               boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.45))',
             }}
             title={isPlaying ? 'Pause' : 'Play'}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isPlaying ? (
               <Pause className="w-4 h-4 fill-white" />
@@ -140,6 +178,7 @@ export const MiniPlayer: React.FC = () => {
             onClick={nextTrack}
             className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
             title="Next"
+            aria-label="Next track"
           >
             <SkipForward className="w-4 h-4" />
           </button>
@@ -155,6 +194,7 @@ export const MiniPlayer: React.FC = () => {
                 : { color: '#666666' }
             }
             title={`Repeat: ${repeatMode}`}
+            aria-label={`Repeat mode: ${repeatMode}`}
           >
             <Repeat className="w-3.5 h-3.5" />
           </button>
@@ -164,8 +204,7 @@ export const MiniPlayer: React.FC = () => {
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center justify-end gap-4 w-1/4 min-w-[200px]">
-        <FormatBadge format={audioFormat} codec={currentTrack.codec} />
+      <div className="flex items-center justify-end gap-3.5 flex-1 min-w-[200px] shrink-0">
         <VolumeSlider
           volume={volume}
           isMuted={isMuted}
@@ -173,16 +212,26 @@ export const MiniPlayer: React.FC = () => {
           onToggleMute={toggleMute}
         />
         <button
+          onClick={toggleNowPlayingDrawer}
+          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
+          title="Side Panel (Artwork & Lyrics)"
+          aria-label="Toggle artwork and lyrics panel"
+        >
+          <Mic2 className="w-4 h-4" />
+        </button>
+        <button
           onClick={() => setActiveView('queue')}
-          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
           title="Queue"
+          aria-label="Open queue"
         >
           <List className="w-4 h-4" />
         </button>
         <button
-          onClick={toggleNowPlayingDrawer}
-          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
-          title="Toggle Now Playing Panel"
+          onClick={toggleCinemaMode}
+          className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
+          title="Fullscreen Ambient Cinema Mode"
+          aria-label="Open cinema mode"
         >
           <Maximize2 className="w-4 h-4" />
         </button>

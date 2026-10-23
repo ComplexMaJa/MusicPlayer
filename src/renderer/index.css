@@ -8,6 +8,29 @@
   }
 }
 
+/* Keep chrome non-selectable, but let users select track metadata and text in
+   the main content area. */
+main,
+main * {
+  user-select: text;
+}
+
+/* Accessible focus ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--accent-color, #FF2E55);
+  outline-offset: 2px;
+}
+
+/* #666666 does not meet AA contrast on the AMOLED background. Keep the
+   existing utility names but raise their rendered contrast centrally. */
+.text-\[\#666666\] {
+  color: #8A8A8A;
+}
+
+.placeholder-\[\#666666\]::placeholder {
+  color: #8A8A8A;
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -125,6 +148,16 @@
   }
 }
 
+@keyframes spinSlow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 8s linear infinite;
+}
+
 .animate-fadeIn {
   animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -177,3 +210,148 @@
   transition: none !important;
   transform: none !important;
 }
+
+/* Lyrics & Scroll Utilities */
+.mask-gradient {
+  mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 88%, transparent 100%);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* GPU Hardware Acceleration & Render Optimization Utilities */
+.gpu-layer {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+.contain-render {
+  contain: layout paint style;
+}
+
+.lyric-item-containment {
+  contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 44px;
+}
+
+@keyframes cinemaGlowBreath {
+  0%, 100% {
+    transform: scale(1) translate3d(0, 0, 0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.06) translate3d(0, 0, 0);
+    opacity: 0.48;
+  }
+}
+
+@keyframes cinemaGlowBreathSecondary {
+  0%, 100% {
+    transform: scale(1) translate3d(0, 0, 0);
+    opacity: 0.28;
+  }
+  50% {
+    transform: scale(1.08) translate3d(0, 0, 0);
+    opacity: 0.40;
+  }
+}
+
+.animate-cinema-breath-1 {
+  animation: cinemaGlowBreath 6s ease-in-out infinite;
+}
+
+.animate-cinema-breath-2 {
+  animation: cinemaGlowBreathSecondary 8s ease-in-out infinite 1.5s;
+}
+
+/* Inline instrumental lyric dots */
+@keyframes lyricDotPulse {
+  0%, 100% {
+    transform: translateY(0) scale(0.72);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(-3px) scale(1.05);
+    opacity: 1;
+  }
+}
+
+.instrumental-dot {
+  opacity: 0.35;
+  transform: scale(0.72);
+  will-change: transform, opacity;
+}
+
+.instrumental-dots.is-active .instrumental-dot {
+  width: 0.875rem;
+  height: 0.875rem;
+  animation: lyricDotPulse 1.15s ease-in-out infinite;
+}
+
+.instrumental-dots.is-paused .instrumental-dot {
+  animation-play-state: paused;
+}
+
+/* Glassmorphism & Custom Wallpaper Layering */
+.has-custom-wallpaper aside {
+  background-color: rgba(6, 6, 6, 0.65) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.has-custom-wallpaper header {
+  background-color: rgba(6, 6, 6, 0.45) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.has-custom-wallpaper .mini-player-bar {
+  background-color: rgba(8, 8, 8, 0.70) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.has-custom-wallpaper .bg-\[\#0A0A0A\] {
+  background-color: rgba(10, 10, 10, 0.60) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.has-custom-wallpaper .bg-\[\#101010\] {
+  background-color: rgba(16, 16, 16, 0.65) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.has-custom-wallpaper .bg-\[\#050505\] {
+  background-color: transparent !important;
+}
+
+/* Cinema Mode must remain opaque even when a custom wallpaper is active. */
+.has-custom-wallpaper .cinema-overlay {
+  background-color: #050505 !important;
+}
+
+.has-custom-wallpaper .border-\[\#1A1A1A\] {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.has-custom-wallpaper .border-\[\#242424\],
+.has-custom-wallpaper .border-\[\#202020\],
+.has-custom-wallpaper .border-\[\#1E1E1E\] {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+

@@ -2,12 +2,6 @@ import { Settings } from '../types';
 
 export const DEFAULT_SETTINGS: Settings = {
   musicFolders: [],
-  outputDevice: 'Default (WASAPI)',
-  outputMode: 'WASAPI Shared',
-  exclusiveMode: false,
-  gaplessPlayback: true,
-  rememberPlaybackPosition: true,
-  normalizeVolume: false,
   volume: 0.8,
   isMuted: false,
   discordEnabled: true,
@@ -17,7 +11,6 @@ export const DEFAULT_SETTINGS: Settings = {
   discordLargeImage: 'logo',
   discordLargeImageText: '',
   discordActivityType: 'listening',
-  amoledMode: true,
   accentColor: '#FF2E55',
   customBackgroundEnabled: false,
   customBackgroundUrl: '',
@@ -25,7 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   customBackgroundBlur: 10,
   customBackgroundFit: 'cover',
   reducedMotion: false,
-  startMinimized: false,
+  lyricsProvider: 'auto',
 };
 
 export const SUPPORTED_EXTENSIONS = ['.flac', '.mp3', '.wav', '.ogg'];

@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { MiniPlayer } from './components/MiniPlayer';
 import { NowPlayingDrawer } from './components/NowPlayingDrawer';
+import { CinemaMode } from './components/CinemaMode';
 
 import { Home } from './pages/Home';
 import { Library } from './pages/Library';
@@ -22,18 +23,32 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { usePlayerStore } from './stores/usePlayerStore';
 
 export const App: React.FC = () => {
-  const { activeView, fetchLibraryData } = useLibraryStore();
-  const { settings, loadSettings } = useSettingsStore();
-  const { initFromSettings } = usePlayerStore();
+  const activeView = useLibraryStore((state) => state.activeView);
+  const fetchLibraryData = useLibraryStore((state) => state.fetchLibraryData);
+  const settings = useSettingsStore((state) => state.settings);
+  const loadSettings = useSettingsStore((state) => state.loadSettings);
+  const initFromSettings = usePlayerStore((state) => state.initFromSettings);
 
   useEffect(() => {
     fetchLibraryData();
     loadSettings().then((loadedSettings) => {
       if (loadedSettings) {
-        initFromSettings(loadedSettings.volume, loadedSettings.isMuted);
+        initFromSettings(
+          loadedSettings.volume,
+          loadedSettings.isMuted,
+          loadedSettings.lyricsProvider
+        );
       }
     });
-  }, []);
+
+    const unsubscribe = window.electronAPI?.onLibraryChanged?.(() => {
+      fetchLibraryData();
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [fetchLibraryData, initFromSettings, loadSettings]);
 
   const renderActiveView = () => {
     switch (activeView) {
@@ -78,35 +93,35 @@ export const App: React.FC = () => {
         '--accent-glow': `${accentHex}55`,
         '--accent-hover': accentHex,
       } as React.CSSProperties}
-      className={`flex flex-col h-screen w-screen overflow-hidden bg-[#050505] text-[#EDEDED] font-sans antialiased select-none relative ${
+      className={`flex flex-col h-screen w-screen overflow-hidden bg-[#050505] text-[#EDEDED] font-sans antialiased select-none relative transition-colors duration-300 ${
         settings.reducedMotion ? 'reduced-motion' : ''
-      }`}
+      } ${hasCustomBg ? 'has-custom-wallpaper' : ''}`}
     >
       {/* Dynamic Custom Background Wallpaper Layer */}
       {hasCustomBg && (
         <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
           <div
-            className="absolute -inset-4 transition-all duration-500 ease-out"
+            className="absolute -inset-10 transition-all duration-500 ease-out bg-no-repeat bg-center"
             style={{
               backgroundImage: `url("${settings.customBackgroundUrl}")`,
               backgroundSize: settings.customBackgroundFit === 'tile' ? 'auto' : settings.customBackgroundFit === 'contain' ? 'contain' : 'cover',
               backgroundRepeat: settings.customBackgroundFit === 'tile' ? 'repeat' : 'no-repeat',
-              backgroundPosition: 'center',
               filter: `blur(${settings.customBackgroundBlur ?? 10}px)`,
-              opacity: settings.customBackgroundOpacity ?? 0.3,
+              opacity: settings.customBackgroundOpacity ?? 0.35,
+              transform: 'scale(1.05)',
             }}
           />
-          {/* Subtle Dark Vignette Scrim for perfect text readability */}
-          <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/60 via-[#050505]/40 to-[#050505]/80" />
+          {/* Subtle Dark Vignette Scrim for perfect text contrast and readability */}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505]/60" />
         </div>
       )}
 
       {/* Upper Area: Sidebar + Main Area + Right Drawer */}
-      <div className={`flex-1 flex overflow-hidden relative z-10 ${hasCustomBg ? 'bg-[#050505]/40 backdrop-blur-[2px]' : ''}`}>
+      <div className="flex-1 flex overflow-hidden relative z-10 bg-transparent">
         <Sidebar />
-        <div className={`flex-1 flex flex-col overflow-hidden min-w-0 ${hasCustomBg ? 'bg-[#050505]/60 backdrop-blur-sm' : 'bg-[#050505]'}`}>
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-transparent">
           <Header />
-          <main key={activeView} className="flex-1 flex overflow-hidden animate-pageTransition">
+          <main key={activeView} className="flex-1 flex overflow-hidden animate-pageTransition bg-transparent">
             {renderActiveView()}
           </main>
         </div>
@@ -117,6 +132,9 @@ export const App: React.FC = () => {
       <div className="relative z-20">
         <MiniPlayer />
       </div>
+
+      {/* Fullscreen Ambient Cinema Mode Overlay */}
+      <CinemaMode />
     </div>
   );
 };

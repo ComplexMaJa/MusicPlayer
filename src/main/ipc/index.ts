@@ -18,12 +18,14 @@ import {
   getRecentlyAdded,
   recordPlayInDb,
   getLibraryStats,
+  isTrackPathKnown,
 } from '../database';
 import { scanFolders } from '../library';
 import { folderWatcher } from '../library/watcher';
 import { getAudioFormatInfo } from '../audio';
+import { getLyricsForTrack } from '../lyrics';
 import { updatePresence, clearPresence, initDiscordRPC, setDiscordClientId } from '../discord';
-import { Settings } from '../../shared/types';
+import { Settings, Track, LyricProviderOption } from '../../shared/types';
 import { DEFAULT_SETTINGS } from '../../shared/constants';
 
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
@@ -111,9 +113,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // Library Scanning
   ipcMain.handle('library:scan', async (_event, folders: string[]) => {
-    const merged = Array.from(new Set([...currentSettings.musicFolders, ...folders]));
+    const selectedFolders = Array.isArray(folders)
+      ? folders.filter((folder): folder is string => typeof folder === 'string' && folder.length > 0)
+      : [];
+    const merged = Array.from(new Set([...currentSettings.musicFolders, ...selectedFolders]));
+
+    if (merged.length === 0) {
+      return;
+    }
+
     saveSettings({ musicFolders: merged });
-    await scanFolders(folders, mainWindow);
+    // Scan every monitored folder, not just the newly selected ones. This keeps
+    // the pruning step from deleting tracks that belong to other folders.
+    await scanFolders(merged, mainWindow);
   });
 
   ipcMain.handle('library:getStats', async () => getLibraryStats());
@@ -163,15 +175,23 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // Audio Engine Bridge
   ipcMain.handle('audio:getFormat', async (_event, filePath: string) => {
-    const info = await getAudioFormatInfo(filePath);
-    if (currentSettings.exclusiveMode) {
-      info.outputMode = 'WASAPI Exclusive';
-      info.isBitPerfect = true;
-    } else if (currentSettings.outputDevice.includes('DirectSound')) {
-      info.outputMode = 'DirectSound';
-      info.isBitPerfect = false;
+    if (typeof filePath !== 'string' || !isTrackPathKnown(filePath)) {
+      throw new Error('Unknown track path');
     }
-    return info;
+
+    return getAudioFormatInfo(filePath);
+  });
+
+  // Lyrics Engine
+  ipcMain.handle('lyrics:getForTrack', async (_event, track: Track, provider?: LyricProviderOption) => {
+    if (!track || typeof track.path !== 'string' || !isTrackPathKnown(track.path)) {
+      return null;
+    }
+
+    return getLyricsForTrack(
+      track,
+      provider || (currentSettings.lyricsProvider as LyricProviderOption) || 'auto'
+    );
   });
 
   // Settings
@@ -188,7 +208,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         currentSettings.discordShowTrack ?? true,
         currentSettings.discordShowElapsed ?? true,
         currentSettings.discordLargeImage ?? 'logo',
-        currentSettings.discordLargeImageText ?? 'MaJa Player (Lossless Audio)',
+        currentSettings.discordLargeImageText ?? 'MaJa Player',
         currentSettings.discordActivityType ?? 'listening'
       );
     } else {

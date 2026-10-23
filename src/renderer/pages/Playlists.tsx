@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Play, Trash2, Disc, ListMusic, X } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { usePlayerStore } from '../stores/usePlayerStore';
-import { Playlist, Track } from '../../shared/types';
+import { Track } from '../../shared/types';
 import { TrackRow } from '../components/TrackRow';
 
 export const Playlists: React.FC = () => {
@@ -13,8 +14,17 @@ export const Playlists: React.FC = () => {
     removeTrackFromPlaylist,
     selectedPlaylistId,
     setSelectedPlaylistId,
-  } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
+  } = useLibraryStore(
+    useShallow((state) => ({
+      playlists: state.playlists,
+      createPlaylist: state.createPlaylist,
+      deletePlaylist: state.deletePlaylist,
+      removeTrackFromPlaylist: state.removeTrackFromPlaylist,
+      selectedPlaylistId: state.selectedPlaylistId,
+      setSelectedPlaylistId: state.setSelectedPlaylistId,
+    }))
+  );
+  const playTrack = usePlayerStore((state) => state.playTrack);
 
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
@@ -46,6 +56,11 @@ export const Playlists: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
+    const playlist = playlists.find((entry) => entry.id === id);
+    if (!window.confirm(`Delete playlist "${playlist?.name ?? 'this playlist'}"?`)) {
+      return;
+    }
+
     await deletePlaylist(id);
     const remaining = playlists.filter((p) => p.id !== id);
     if (remaining.length > 0) {
@@ -76,7 +91,10 @@ export const Playlists: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-[10px] font-semibold text-[#FF2E55] uppercase tracking-widest mb-1 font-mono">
+          <h2
+            className="text-[10px] font-semibold uppercase tracking-widest mb-1 font-mono transition-colors"
+            style={{ color: 'var(--accent-color, #FF2E55)' }}
+          >
             USER PLAYLISTS
           </h2>
           <h1 className="text-3xl font-bold text-white tracking-tight">PLAYLISTS</h1>
@@ -85,7 +103,11 @@ export const Playlists: React.FC = () => {
 
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FF2E55] hover:bg-[#FF4568] text-white text-xs font-semibold shadow-lg shadow-[#FF2E55]/30 hover:shadow-xl hover:shadow-[#FF2E55]/50 transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
+          style={{
+            backgroundColor: 'var(--accent-color, #FF2E55)',
+            boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.35))',
+          }}
         >
           <Plus className="w-4 h-4" />
           <span>NEW PLAYLIST</span>
@@ -94,13 +116,29 @@ export const Playlists: React.FC = () => {
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-2xl p-6 w-96 flex flex-col gap-4 shadow-2xl animate-pageTransition">
+        <div
+          className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowCreateModal(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setShowCreateModal(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-playlist-title"
+            className="bg-[#0A0A0A] border border-[#1A1A1A] rounded-2xl p-6 w-96 flex flex-col gap-4 shadow-2xl animate-pageTransition"
+          >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-white">Create New Playlist</h3>
+              <h3 id="create-playlist-title" className="text-base font-bold text-white">
+                Create New Playlist
+              </h3>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="text-[#666666] hover:text-white p-1 rounded-full hover:bg-[#151515] transition-all hover:scale-110 active:scale-90"
+                aria-label="Close create playlist dialog"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -116,7 +154,7 @@ export const Playlists: React.FC = () => {
                   onChange={(e) => setNewPlaylistName(e.target.value)}
                   placeholder="e.g. Chill Vibes..."
                   autoFocus
-                  className="w-full bg-[#101010] border border-[#242424] focus:border-[#FF2E55] focus:shadow-md focus:shadow-[#FF2E55]/10 rounded-xl px-4 py-2 text-xs text-white outline-none transition-all duration-200"
+                  className="w-full bg-[#101010] border border-[#242424] rounded-xl px-4 py-2 text-xs text-white outline-none transition-all duration-200"
                 />
               </div>
               <div>
@@ -128,7 +166,7 @@ export const Playlists: React.FC = () => {
                   value={newPlaylistDesc}
                   onChange={(e) => setNewPlaylistDesc(e.target.value)}
                   placeholder="Short description..."
-                  className="w-full bg-[#101010] border border-[#242424] focus:border-[#FF2E55] focus:shadow-md focus:shadow-[#FF2E55]/10 rounded-xl px-4 py-2 text-xs text-white outline-none transition-all duration-200"
+                  className="w-full bg-[#101010] border border-[#242424] rounded-xl px-4 py-2 text-xs text-white outline-none transition-all duration-200"
                 />
               </div>
               <div className="flex justify-end gap-2 mt-2">
@@ -141,7 +179,11 @@ export const Playlists: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#FF2E55] hover:bg-[#FF4568] text-white text-xs font-semibold shadow-md shadow-[#FF2E55]/30 hover:scale-102 active:scale-97 transition-all cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-white text-xs font-semibold shadow-md hover:scale-102 active:scale-97 transition-all cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--accent-color, #FF2E55)',
+                    boxShadow: '0 0 14px var(--accent-glow, rgba(255, 46, 85, 0.35))',
+                  }}
                 >
                   Create Playlist
                 </button>
@@ -156,30 +198,45 @@ export const Playlists: React.FC = () => {
         {playlists.map((pl) => {
           const isSelected = activePlaylist?.id === pl.id;
           return (
-            <div
+            <button
+              type="button"
               key={pl.id}
               onClick={() => setSelectedPlaylistId(pl.id)}
-              className={`p-4 rounded-2xl border flex flex-col gap-2 transition-all duration-200 ease-out cursor-pointer select-none group ${
+              className={`w-full text-left p-4 rounded-2xl border flex flex-col gap-2 transition-all duration-200 ease-out cursor-pointer select-none group ${
                 isSelected
-                  ? 'bg-[#101010] border-[#FF2E55]/40 shadow-lg shadow-[#FF2E55]/10 -translate-y-0.5'
-                  : 'bg-[#0A0A0A] border-[#1A1A1A] hover:border-[#FF2E55]/30 hover:shadow-lg hover:shadow-[#FF2E55]/5 hover:-translate-y-1'
+                  ? 'bg-[#101010] -translate-y-0.5'
+                  : 'bg-[#0A0A0A] border-[#1A1A1A] hover:-translate-y-1'
               }`}
+              style={
+                isSelected
+                  ? {
+                      borderColor: 'var(--accent-color, #FF2E55)',
+                      boxShadow: '0 0 18px var(--accent-glow, rgba(255, 46, 85, 0.2))',
+                    }
+                  : undefined
+              }
             >
               <div className="flex items-center justify-between">
-                <div className="w-8 h-8 rounded-lg bg-[#151515] border border-[#1A1A1A] flex items-center justify-center text-[#FF2E55] group-hover:scale-105 transition-transform">
+                <div
+                  className="w-8 h-8 rounded-lg bg-[#151515] border border-[#1A1A1A] flex items-center justify-center group-hover:scale-105 transition-transform"
+                  style={{ color: 'var(--accent-color, #FF2E55)' }}
+                >
                   <ListMusic className="w-4 h-4" />
                 </div>
                 <span className="text-[10px] font-mono text-[#666666]">
                   {pl.trackCount} {pl.trackCount === 1 ? 'SONG' : 'SONGS'}
                 </span>
               </div>
-              <h4 className={`text-xs font-bold truncate transition-colors ${isSelected ? 'text-[#FF2E55]' : 'text-white group-hover:text-[#FF2E55]'}`}>
+              <h4
+                className="text-xs font-bold truncate transition-colors"
+                style={isSelected ? { color: 'var(--accent-color, #FF2E55)' } : { color: 'white' }}
+              >
                 {pl.name}
               </h4>
               {pl.description && (
                 <p className="text-[11px] text-[#A3A3A3] truncate font-light">{pl.description}</p>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -197,13 +254,19 @@ export const Playlists: React.FC = () => {
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#151515] to-[#0A0A0A]">
-                  <Disc className="w-12 h-12 text-[#FF2E55] opacity-80 group-hover:scale-105 transition-transform duration-300" />
+                  <Disc
+                    className="w-12 h-12 opacity-80 group-hover:scale-105 transition-transform duration-300"
+                    style={{ color: 'var(--accent-color, #FF2E55)' }}
+                  />
                 </div>
               )}
             </div>
 
             <div className="flex flex-col gap-3 min-w-0 flex-1">
-              <span className="text-[10px] font-semibold text-[#FF2E55] uppercase tracking-widest font-mono">
+              <span
+                className="text-[10px] font-semibold uppercase tracking-widest font-mono"
+                style={{ color: 'var(--accent-color, #FF2E55)' }}
+              >
                 SELECTED PLAYLIST
               </span>
               <h2 className="text-3xl font-bold text-white tracking-tight truncate">
@@ -220,7 +283,11 @@ export const Playlists: React.FC = () => {
                 <button
                   onClick={handlePlayPlaylist}
                   disabled={activePlaylistTracks.length === 0}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-[#FF2E55] hover:bg-[#FF4568] text-white text-xs font-semibold shadow-lg shadow-[#FF2E55]/30 hover:shadow-xl hover:shadow-[#FF2E55]/50 transition-all duration-200 hover:scale-102 active:scale-97 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl text-white text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-102 active:scale-97 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--accent-color, #FF2E55)',
+                    boxShadow: '0 0 16px var(--accent-glow, rgba(255, 46, 85, 0.35))',
+                  }}
                 >
                   <Play className="w-4 h-4 fill-white translate-x-0.5" />
                   <span>Play Playlist</span>
