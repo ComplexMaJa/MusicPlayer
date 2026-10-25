@@ -10,6 +10,9 @@ import {
   createPlaylistInDb,
   deletePlaylistInDb,
   addTrackToPlaylistInDb,
+  addTracksToPlaylistInDb,
+  getTracksByAlbum,
+  getTracksByArtist,
   removeTrackFromPlaylistInDb,
   getPlaylistTracksFromDb,
   toggleFavoriteInDb,
@@ -77,7 +80,13 @@ export function saveSettings(settings: Partial<Settings>): Settings {
   return currentSettings;
 }
 
+let ipcHandlersRegistered = false;
+
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
+  folderWatcher.setMainWindow(mainWindow);
+  mainWindow.on('closed', () => {
+    folderWatcher.setMainWindow(null);
+  });
   loadSettings();
 
   // Start live folder watcher for monitored music folders
@@ -88,31 +97,49 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     initDiscordRPC(currentSettings.discordClientId);
   }
 
+  if (ipcHandlersRegistered) return;
+  ipcHandlersRegistered = true;
+
   // Dialog & Folders
-  ipcMain.handle('dialog:selectFolder', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory', 'multiSelections'],
-      title: 'Select Music Folder',
-    });
+  ipcMain.handle('dialog:selectFolder', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          properties: ['openDirectory', 'multiSelections'],
+          title: 'Select Music Folder',
+        })
+      : await dialog.showOpenDialog({
+          properties: ['openDirectory', 'multiSelections'],
+          title: 'Select Music Folder',
+        });
     if (result.canceled) return null;
     return result.filePaths;
   });
 
-  ipcMain.handle('dialog:selectImage', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: [
-        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'] },
-      ],
-      title: 'Select Custom Background Image',
-    });
+  ipcMain.handle('dialog:selectImage', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          properties: ['openFile'],
+          filters: [
+            { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'] },
+          ],
+          title: 'Select Custom Background Image',
+        })
+      : await dialog.showOpenDialog({
+          properties: ['openFile'],
+          filters: [
+            { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'] },
+          ],
+          title: 'Select Custom Background Image',
+        });
     if (result.canceled || result.filePaths.length === 0) return null;
     const filePath = result.filePaths[0];
     return `maja-artwork://load?path=${encodeURIComponent(filePath)}`;
   });
 
   // Library Scanning
-  ipcMain.handle('library:scan', async (_event, folders: string[]) => {
+  ipcMain.handle('library:scan', async (event, folders: string[]) => {
     const selectedFolders = Array.isArray(folders)
       ? folders.filter((folder): folder is string => typeof folder === 'string' && folder.length > 0)
       : [];
@@ -125,7 +152,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     saveSettings({ musicFolders: merged });
     // Scan every monitored folder, not just the newly selected ones. This keeps
     // the pruning step from deleting tracks that belong to other folders.
-    await scanFolders(merged, mainWindow);
+    const win = BrowserWindow.fromWebContents(event.sender) ?? null;
+    await scanFolders(merged, win);
   });
 
   ipcMain.handle('library:getStats', async () => getLibraryStats());
@@ -137,7 +165,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const albums = getAlbums();
     const album = albums.find((a) => a.id === albumId);
     if (!album) return null;
-    const tracks = getAllTracks().filter((t) => t.album === album.title && t.artist === album.artist);
+    const tracks = getTracksByAlbum(album.artist, album.title);
     return { ...album, tracks };
   });
 
@@ -147,7 +175,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const artist = artists.find((a) => a.id === artistId);
     if (!artist) return null;
     const albums = getAlbums().filter((a) => a.artist === artist.name);
-    const tracks = getAllTracks().filter((t) => t.artist === artist.name);
+    const tracks = getTracksByArtist(artist.name);
     return { artist, albums, tracks };
   });
 
@@ -162,6 +190,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('playlists:delete', async (_event, id: string) => deletePlaylistInDb(id));
   ipcMain.handle('playlists:addTrack', async (_event, playlistId: string, trackId: string) =>
     addTrackToPlaylistInDb(playlistId, trackId)
+  );
+  ipcMain.handle('playlists:addTracks', async (_event, playlistId: string, trackIds: string[]) =>
+    addTracksToPlaylistInDb(playlistId, trackIds)
+  );
+  ipcMain.handle('library:addTracksToPlaylist', async (_event, playlistId: string, trackIds: string[]) =>
+    addTracksToPlaylistInDb(playlistId, trackIds)
   );
   ipcMain.handle('playlists:removeTrack', async (_event, playlistId: string, trackId: string) =>
     removeTrackFromPlaylistInDb(playlistId, trackId)
@@ -217,13 +251,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   });
 
   // Window controls
-  ipcMain.on('window:minimize', () => mainWindow.minimize());
-  ipcMain.on('window:maximize', () => {
-    if (mainWindow.isMaximized()) {
-      mainWindow.unmaximize();
+  ipcMain.on('window:minimize', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.minimize();
+  });
+  ipcMain.on('window:maximize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    if (win.isMaximized()) {
+      win.unmaximize();
     } else {
-      mainWindow.maximize();
+      win.maximize();
     }
   });
-  ipcMain.on('window:close', () => mainWindow.close());
+  ipcMain.on('window:close', (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
 }

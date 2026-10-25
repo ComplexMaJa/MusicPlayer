@@ -207,7 +207,30 @@ main * {
 .reduced-motion *,
 .reduced-motion {
   animation: none !important;
-  transition: none !important;
+  transition-duration: 0.01ms !important;
+}
+
+.reduced-motion .btn-tactile:hover,
+.reduced-motion .icon-btn:hover,
+.reduced-motion .group:hover .group-hover\:-translate-y-1,
+.reduced-motion .group:hover .group-hover\:scale-102,
+.reduced-motion .group:hover .group-hover\:scale-105,
+.reduced-motion .group:hover .group-hover\:scale-108,
+.reduced-motion .group:hover .group-hover\:scale-110,
+.reduced-motion .hover\:-translate-y-1:hover,
+.reduced-motion .hover\:-translate-y-0\.5:hover,
+.reduced-motion .hover\:translate-x-0\.5:hover,
+.reduced-motion .hover\:translate-x-1:hover,
+.reduced-motion .hover\:-translate-x-1:hover,
+.reduced-motion .hover\:scale-102:hover,
+.reduced-motion .hover\:scale-103:hover,
+.reduced-motion .hover\:scale-105:hover,
+.reduced-motion .hover\:scale-108:hover,
+.reduced-motion .hover\:scale-110:hover,
+.reduced-motion .active\:scale-90:active,
+.reduced-motion .active\:scale-95:active,
+.reduced-motion .active\:scale-97:active,
+.reduced-motion .active\:scale-125:active {
   transform: none !important;
 }
 

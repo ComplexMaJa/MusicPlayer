@@ -45,6 +45,7 @@ function getPipePath(id: number): string {
 }
 
 export function initDiscordRPC(clientId?: string): void {
+  disconnect();
   if (clientId && clientId !== DEFUNCT_DISCORD_CLIENT_ID) {
     currentClientId = clientId;
   } else {
@@ -94,12 +95,13 @@ function connectToDiscord(pipeId: number): void {
   const pipePath = getPipePath(pipeId);
 
   try {
+    let connectionFailed = false;
     const socket = net.connect(pipePath, () => {
-      ipcSocket = socket;
       isConnected = true;
       receiveBuffer = Buffer.alloc(0);
       sendHandshake();
     });
+    ipcSocket = socket;
 
     socket.on('data', (data: Buffer | string) => {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
@@ -108,17 +110,32 @@ function connectToDiscord(pipeId: number): void {
     });
 
     socket.on('error', () => {
-      disconnect();
+      connectionFailed = true;
+      cleanupSocket(socket);
       reconnectTimer = setTimeout(() => connectToDiscord(pipeId + 1), 250);
     });
 
     socket.on('close', () => {
+      if (connectionFailed) return;
       disconnect();
       reconnectTimer = setTimeout(() => connectToDiscord(0), 4000);
     });
   } catch (err) {
-    disconnect();
+    if (ipcSocket) {
+      cleanupSocket(ipcSocket);
+    }
     reconnectTimer = setTimeout(() => connectToDiscord(pipeId + 1), 250);
+  }
+}
+
+function cleanupSocket(socket: net.Socket): void {
+  socket.removeAllListeners();
+  socket.destroy();
+  if (ipcSocket === socket) {
+    ipcSocket = null;
+    isConnected = false;
+    isHandshakeComplete = false;
+    receiveBuffer = Buffer.alloc(0);
   }
 }
 

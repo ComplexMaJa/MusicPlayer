@@ -419,7 +419,6 @@ export const CinemaMode: React.FC = () => {
     };
 
     checkAudioTime();
-    rafId = requestAnimationFrame(checkAudioTime);
 
     return () => {
       if (rafId) cancelAnimationFrame(rafId);

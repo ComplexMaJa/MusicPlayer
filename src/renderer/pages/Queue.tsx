@@ -17,10 +17,10 @@ export const Queue: React.FC = () => {
         playTrack: state.playTrack,
       }))
     );
-  const { createPlaylist, addTrackToPlaylist, setActiveView } = useLibraryStore(
+  const { createPlaylist, addTracksToPlaylist, setActiveView } = useLibraryStore(
     useShallow((state) => ({
       createPlaylist: state.createPlaylist,
-      addTrackToPlaylist: state.addTrackToPlaylist,
+      addTracksToPlaylist: state.addTracksToPlaylist,
       setActiveView: state.setActiveView,
     }))
   );
@@ -34,9 +34,7 @@ export const Queue: React.FC = () => {
     const name = `Queue Playlist — ${new Date().toLocaleDateString()}`;
     const pl = await createPlaylist(name);
     if (pl) {
-      for (const track of queue) {
-        await addTrackToPlaylist(pl.id, track.id);
-      }
+      await addTracksToPlaylist(pl.id, queue.map((t) => t.id));
       setActiveView('playlists');
     }
   };

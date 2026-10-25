@@ -1,4 +1,4 @@
-import initSqlJs, { Database } from 'sql.js';
+import initSqlJs, { Database, Statement } from 'sql.js';
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
@@ -278,13 +278,22 @@ export function saveDatabase(): boolean {
   }
 }
 
+export function normalizePathForPlatform(p: string): string {
+  const resolved = path.resolve(p);
+  if (process.platform === 'win32') {
+    return resolved.replace(/^[a-zA-Z]:/, (m) => m.toUpperCase());
+  }
+  return resolved;
+}
+
 // Track operations
 export function isTrackPathKnown(filePath: string): boolean {
   if (!db || !filePath) return false;
 
+  const normalized = normalizePathForPlatform(filePath);
   const stmt = db.prepare(`SELECT 1 FROM tracks WHERE path = ? LIMIT 1`);
   try {
-    stmt.bind([filePath]);
+    stmt.bind([normalized]);
     return stmt.step();
   } finally {
     stmt.free();
@@ -349,6 +358,46 @@ export function getAllTracks(): Track[] {
   if (!res.length) return [];
   const columns = res[0].columns;
   return res[0].values.map((row) => mapRowToTrack(columns, row));
+}
+
+export function getTracksByAlbum(artist: string, title: string): Track[] {
+  if (!db) return [];
+  const stmt = db.prepare(`
+    SELECT * FROM tracks 
+    WHERE artist = ? AND album = ? 
+    ORDER BY trackNumber ASC, discNumber ASC, title ASC
+  `);
+  try {
+    stmt.bind([artist, title]);
+    const tracks: Track[] = [];
+    const columns = stmt.getColumnNames();
+    while (stmt.step()) {
+      tracks.push(mapRowToTrack(columns, stmt.get()));
+    }
+    return tracks;
+  } finally {
+    stmt.free();
+  }
+}
+
+export function getTracksByArtist(artist: string): Track[] {
+  if (!db) return [];
+  const stmt = db.prepare(`
+    SELECT * FROM tracks 
+    WHERE artist = ? 
+    ORDER BY trackNumber ASC, discNumber ASC, title ASC
+  `);
+  try {
+    stmt.bind([artist]);
+    const tracks: Track[] = [];
+    const columns = stmt.getColumnNames();
+    while (stmt.step()) {
+      tracks.push(mapRowToTrack(columns, stmt.get()));
+    }
+    return tracks;
+  } finally {
+    stmt.free();
+  }
 }
 
 export function getAllArtworkPaths(): string[] {
@@ -552,31 +601,66 @@ export function deletePlaylistInDb(id: string): boolean {
   return true;
 }
 
-export function addTrackToPlaylistInDb(playlistId: string, trackId: string): boolean {
-  if (!db) return false;
-  const resStmt = db.prepare(`SELECT MAX(position) FROM playlist_tracks WHERE playlistId = ?`);
-  resStmt.bind([playlistId]);
+export function addTracksToPlaylistInDb(playlistId: string, trackIds: string[]): boolean {
+  if (!db || !trackIds || trackIds.length === 0) return false;
+
   let maxPos = 0;
-  if (resStmt.step()) {
-    const val = resStmt.get()[0];
-    if (val !== null && val !== undefined) {
-      maxPos = (val as number) + 1;
+  const resStmt = db.prepare(`SELECT MAX(position) FROM playlist_tracks WHERE playlistId = ?`);
+  try {
+    resStmt.bind([playlistId]);
+    if (resStmt.step()) {
+      const val = resStmt.get()[0];
+      if (val !== null && val !== undefined) {
+        maxPos = (val as number) + 1;
+      }
     }
+  } finally {
+    resStmt.free();
   }
-  resStmt.free();
 
-  const insertStmt = db.prepare(
-    `INSERT OR IGNORE INTO playlist_tracks (playlistId, trackId, position) VALUES (?, ?, ?)`
-  );
-  insertStmt.run([playlistId, trackId, maxPos]);
-  insertStmt.free();
+  let insertStmt: Statement | null = null;
+  let updateStmt: Statement | null = null;
+  let inTransaction = false;
 
-  const updateStmt = db.prepare(`UPDATE playlists SET updatedAt = ? WHERE id = ?`);
-  updateStmt.run([Date.now(), playlistId]);
-  updateStmt.free();
+  try {
+    db.run('BEGIN TRANSACTION');
+    inTransaction = true;
+
+    insertStmt = db.prepare(
+      `INSERT OR IGNORE INTO playlist_tracks (playlistId, trackId, position) VALUES (?, ?, ?)`
+    );
+    for (const trackId of trackIds) {
+      if (typeof trackId === 'string' && trackId.length > 0) {
+        insertStmt.run([playlistId, trackId, maxPos++]);
+      }
+    }
+
+    updateStmt = db.prepare(`UPDATE playlists SET updatedAt = ? WHERE id = ?`);
+    updateStmt.run([Date.now(), playlistId]);
+
+    db.run('COMMIT');
+    inTransaction = false;
+  } catch (err) {
+    if (inTransaction) {
+      try {
+        db.run('ROLLBACK');
+      } catch (_) {}
+    }
+    console.error('Failed to add tracks to playlist in batch:', err);
+    return false;
+  } finally {
+    if (insertStmt) insertStmt.free();
+    if (updateStmt) updateStmt.free();
+  }
 
   saveDatabase();
   return true;
+}
+
+export const addTracksToPlaylist = addTracksToPlaylistInDb;
+
+export function addTrackToPlaylistInDb(playlistId: string, trackId: string): boolean {
+  return addTracksToPlaylistInDb(playlistId, [trackId]);
 }
 
 export function removeTrackFromPlaylistInDb(playlistId: string, trackId: string): boolean {

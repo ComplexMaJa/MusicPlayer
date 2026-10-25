@@ -2,7 +2,7 @@ import * as musicMetadata from 'music-metadata';
 import path from 'path';
 import fs from 'fs';
 import { Readable } from 'stream';
-import { protocol, net } from 'electron';
+import { protocol, net, app } from 'electron';
 import { pathToFileURL } from 'url';
 import { AudioFormatInfo } from '../../shared/types';
 import { SUPPORTED_EXTENSIONS } from '../../shared/constants';
@@ -10,6 +10,27 @@ import { isTrackPathKnown } from '../database';
 import { ensureArtworkDirExists } from '../library';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif']);
+
+function getAllowedWallpaperPath(): string | null {
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (!fs.existsSync(settingsPath)) return null;
+    const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const customBg = data?.customBackgroundUrl;
+    if (typeof customBg === 'string' && customBg.startsWith('maja-artwork://load')) {
+      const parsedBg = new URL(customBg);
+      const rawPath = parsedBg.searchParams.get('path');
+      if (rawPath) {
+        let decoded = rawPath;
+        try {
+          decoded = decodeURIComponent(rawPath);
+        } catch (_) {}
+        return path.resolve(decoded);
+      }
+    }
+  } catch (_) {}
+  return null;
+}
 
 function isPathInside(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
@@ -93,7 +114,11 @@ export function registerAudioSchemes(): void {
   ]);
 }
 
+let audioProtocolsRegistered = false;
+
 export function registerAudioProtocols(): void {
+  if (audioProtocolsRegistered) return;
+  audioProtocolsRegistered = true;
   protocol.handle('maja-audio', (request) => {
     try {
       const parsedUrl = new URL(request.url);
@@ -199,10 +224,20 @@ export function registerAudioProtocols(): void {
         }
 
         let targetPath = directPath;
-        if (!fs.existsSync(targetPath)) {
-          try {
-            targetPath = decodeURIComponent(targetPath);
-          } catch (_) {}
+        try {
+          targetPath = decodeURIComponent(targetPath);
+        } catch (_) {}
+        targetPath = path.resolve(targetPath);
+
+        const allowedWallpaperPath = getAllowedWallpaperPath();
+        const isMatch =
+          Boolean(allowedWallpaperPath) &&
+          (process.platform === 'win32'
+            ? targetPath.toLowerCase() === allowedWallpaperPath!.toLowerCase()
+            : targetPath === allowedWallpaperPath);
+
+        if (!isMatch) {
+          return new Response('Access denied: unapproved wallpaper path', { status: 403 });
         }
 
         if (

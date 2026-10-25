@@ -9,6 +9,7 @@ import {
   upsertTrack,
   removeTracksNotInPaths,
   saveDatabase,
+  normalizePathForPlatform,
 } from '../database';
 import { Track, ScanProgress } from '../../shared/types';
 
@@ -49,6 +50,53 @@ function pruneArtworkCache(cacheDir: string): void {
   }
 }
 
+let activeScanPromise: Promise<void> | null = null;
+let hasQueuedScan = false;
+let queuedFolders: string[] = [];
+let queuedMainWindow: BrowserWindow | null = null;
+let queuedScanPromise: Promise<void> | null = null;
+
+export function isScanInProgress(): boolean {
+  return activeScanPromise !== null || hasQueuedScan;
+}
+
+export async function scanFolders(
+  folders: string[],
+  mainWindow: BrowserWindow | null
+): Promise<void> {
+  if (activeScanPromise) {
+    hasQueuedScan = true;
+    queuedFolders = Array.from(new Set([...queuedFolders, ...folders]));
+    if (mainWindow) {
+      queuedMainWindow = mainWindow;
+    }
+    if (!queuedScanPromise) {
+      queuedScanPromise = (async () => {
+        try {
+          await activeScanPromise;
+        } catch (_) {}
+        if (hasQueuedScan) {
+          hasQueuedScan = false;
+          const nextFolders = queuedFolders;
+          const nextWindow = queuedMainWindow;
+          queuedFolders = [];
+          queuedMainWindow = null;
+          queuedScanPromise = null;
+          return scanFolders(nextFolders, nextWindow);
+        }
+      })();
+    }
+    return queuedScanPromise;
+  }
+
+  activeScanPromise = executeScanFolders(folders, mainWindow);
+  try {
+    await activeScanPromise;
+  } finally {
+    activeScanPromise = null;
+  }
+}
+
 /**
  * Scans the provided folders and prunes any indexed track that is not present
  * in one of them. Callers must pass the complete set of monitored folders;
@@ -56,7 +104,7 @@ function pruneArtworkCache(cacheDir: string): void {
  * is skipped when any requested folder is unavailable so a disconnected drive
  * or network share does not erase its tracks from the library.
  */
-export async function scanFolders(
+async function executeScanFolders(
   folders: string[],
   mainWindow: BrowserWindow | null
 ): Promise<void> {
@@ -77,10 +125,14 @@ export async function scanFolders(
 
   const cacheDir = ensureArtworkDirExists();
   const allAudioFiles: string[] = [];
+  let traversalHadErrors = false;
 
   for (const folder of uniqueFolders) {
-    const files = await findAudioFilesRecursive(folder);
+    const { files, hasErrors } = await findAudioFilesRecursive(folder);
     allAudioFiles.push(...files);
+    if (hasErrors) {
+      traversalHadErrors = true;
+    }
   }
 
   const totalFiles = allAudioFiles.length;
@@ -105,13 +157,14 @@ export async function scanFolders(
 
   try {
     for (const filePath of allAudioFiles) {
-      fileSet.add(filePath);
+      const normalizedPath = normalizePathForPlatform(filePath);
+      fileSet.add(normalizedPath);
       processedFiles++;
       notifyProgress(filePath);
 
       try {
         const stats = await fs.promises.stat(filePath);
-        const fileId = crypto.createHash('md5').update(filePath).digest('hex');
+        const fileId = crypto.createHash('md5').update(normalizedPath).digest('hex');
 
         const metadata = await musicMetadata.parseFile(filePath, { duration: true });
 
@@ -142,7 +195,7 @@ export async function scanFolders(
 
         const track: Track = {
           id: fileId,
-          path: filePath,
+          path: normalizedPath,
           title: common.title || path.basename(filePath, path.extname(filePath)),
           artist: common.artist || common.albumartist || 'Unknown Artist',
           album: common.album || 'Unknown Album',
@@ -166,12 +219,12 @@ export async function scanFolders(
         upsertTrack(track);
       } catch (err: any) {
         console.error(`Error parsing file ${filePath}:`, err);
-        const fileId = crypto.createHash('md5').update(filePath).digest('hex');
+        const fileId = crypto.createHash('md5').update(normalizedPath).digest('hex');
         const ext = path.extname(filePath).replace('.', '').toUpperCase();
         const stats = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
         upsertTrack({
           id: fileId,
-          path: filePath,
+          path: normalizedPath,
           title: path.basename(filePath, path.extname(filePath)),
           artist: 'Unknown Artist',
           album: 'Unknown Album',
@@ -184,8 +237,10 @@ export async function scanFolders(
       }
     }
 
-    if (missingFolders.length === 0) {
+    if (missingFolders.length === 0 && !traversalHadErrors) {
       removeTracksNotInPaths(fileSet);
+    } else if (traversalHadErrors) {
+      console.warn('Skipping track pruning because one or more subdirectories could not be read');
     }
   } catch (err: any) {
     scanError = err instanceof Error ? err.message : String(err);

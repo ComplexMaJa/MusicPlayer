@@ -62,3 +62,7 @@ coverage/
 *.db
 tmp/
 temp/
+
+# Agent Orchestration Artifacts
+.agents/
+

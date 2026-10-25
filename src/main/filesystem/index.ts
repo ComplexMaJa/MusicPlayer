@@ -2,8 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { SUPPORTED_EXTENSIONS } from '../../shared/constants';
 
-export async function findAudioFilesRecursive(dirPath: string): Promise<string[]> {
+export async function findAudioFilesRecursive(
+  dirPath: string
+): Promise<{ files: string[]; hasErrors: boolean }> {
   const audioFiles: string[] = [];
+  let hasErrors = false;
 
   async function walk(currentDir: string) {
     try {
@@ -24,9 +27,10 @@ export async function findAudioFilesRecursive(dirPath: string): Promise<string[]
       }
     } catch (err) {
       console.warn(`Could not read directory ${currentDir}:`, err);
+      hasErrors = true;
     }
   }
 
   await walk(dirPath);
-  return audioFiles;
+  return { files: audioFiles, hasErrors };
 }

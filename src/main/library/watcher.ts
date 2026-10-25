@@ -8,8 +8,10 @@ class FolderWatcherManager {
   private watchers: Map<string, fs.FSWatcher> = new Map();
   private debounceTimer: NodeJS.Timeout | null = null;
   private currentFolders: string[] = [];
+  private allConfiguredFolders: string[] = [];
   private mainWindow: BrowserWindow | null = null;
   private isScanning = false;
+  private hasPendingRescan = false;
 
   public setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window;
@@ -19,6 +21,7 @@ class FolderWatcherManager {
     if (mainWindow !== undefined) {
       this.mainWindow = mainWindow;
     }
+    this.allConfiguredFolders = Array.from(new Set(folders.filter((f) => f && f.trim().length > 0)));
     this.currentFolders = Array.from(new Set(folders.filter((f) => fs.existsSync(f))));
     this.syncWatchers();
   }
@@ -32,6 +35,7 @@ class FolderWatcherManager {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    this.hasPendingRescan = false;
     for (const [folder, watcher] of this.watchers.entries()) {
       try {
         watcher.close();
@@ -85,16 +89,26 @@ class FolderWatcherManager {
       }
     }
 
+    if (this.isScanning) {
+      this.hasPendingRescan = true;
+      return;
+    }
+
     // Trigger debounced scan across all monitored folders
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
 
     this.debounceTimer = setTimeout(async () => {
-      if (this.isScanning || this.currentFolders.length === 0) return;
+      if (this.isScanning || this.allConfiguredFolders.length === 0) {
+        if (this.isScanning) {
+          this.hasPendingRescan = true;
+        }
+        return;
+      }
       this.isScanning = true;
       try {
-        await scanFolders(this.currentFolders, this.mainWindow);
+        await scanFolders(this.allConfiguredFolders, this.mainWindow);
 
         if (
           this.mainWindow &&
@@ -107,6 +121,10 @@ class FolderWatcherManager {
         console.error('Error during auto-rescan triggered by file watcher:', err);
       } finally {
         this.isScanning = false;
+        if (this.hasPendingRescan) {
+          this.hasPendingRescan = false;
+          this.handleFsEvent(null);
+        }
       }
     }, 1500);
   }

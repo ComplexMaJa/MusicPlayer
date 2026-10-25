@@ -46,6 +46,8 @@ export const electronAPI = {
   deletePlaylist: (id: string): Promise<boolean> => ipcRenderer.invoke('playlists:delete', id),
   addTrackToPlaylist: (playlistId: string, trackId: string): Promise<boolean> =>
     ipcRenderer.invoke('playlists:addTrack', playlistId, trackId),
+  addTracksToPlaylist: (playlistId: string, trackIds: string[]): Promise<boolean> =>
+    ipcRenderer.invoke('playlists:addTracks', playlistId, trackIds),
   removeTrackFromPlaylist: (playlistId: string, trackId: string): Promise<boolean> =>
     ipcRenderer.invoke('playlists:removeTrack', playlistId, trackId),
   getPlaylistTracks: (playlistId: string): Promise<Track[]> =>

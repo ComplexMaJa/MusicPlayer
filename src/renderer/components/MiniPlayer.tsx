@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Play,
   Pause,
@@ -19,12 +19,17 @@ import { FormatBadge } from './FormatBadge';
 import { ProgressBar } from './ProgressBar';
 import { VolumeSlider } from './VolumeSlider';
 
+const MiniPlayerProgressBar: React.FC<{ onSeek: (seconds: number) => void }> = memo(({ onSeek }) => {
+  const currentTime = usePlayerStore((state) => state.currentTime);
+  const duration = usePlayerStore((state) => state.duration);
+  return <ProgressBar currentTime={currentTime} duration={duration} onSeek={onSeek} />;
+});
+MiniPlayerProgressBar.displayName = 'MiniPlayerProgressBar';
+
 export const MiniPlayer: React.FC = () => {
   const {
     currentTrack,
     isPlaying,
-    currentTime,
-    duration,
     volume,
     isMuted,
     isShuffle,
@@ -44,8 +49,6 @@ export const MiniPlayer: React.FC = () => {
     useShallow((state) => ({
       currentTrack: state.currentTrack,
       isPlaying: state.isPlaying,
-      currentTime: state.currentTime,
-      duration: state.duration,
       volume: state.volume,
       isMuted: state.isMuted,
       isShuffle: state.isShuffle,
@@ -200,7 +203,7 @@ export const MiniPlayer: React.FC = () => {
           </button>
         </div>
 
-        <ProgressBar currentTime={currentTime} duration={duration} onSeek={seek} />
+        <MiniPlayerProgressBar onSeek={seek} />
       </div>
 
       {/* Right Controls */}

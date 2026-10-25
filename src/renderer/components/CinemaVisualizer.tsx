@@ -29,11 +29,16 @@ export const CinemaVisualizer: React.FC<CinemaVisualizerProps> = ({
   const isPlayingRef = useRef(isPlaying);
   const accentColorRef = useRef(accentColor);
   const accentGlowRef = useRef(accentGlow);
+  const rafIdRef = useRef<number | null>(null);
+  const renderFrameRef = useRef<((now: number) => void) | null>(null);
 
   useEffect(() => {
     isPlayingRef.current = isPlaying;
     accentColorRef.current = accentColor;
     accentGlowRef.current = accentGlow;
+    if (!isPlaying && renderFrameRef.current) {
+      renderFrameRef.current(performance.now());
+    }
   }, [isPlaying, accentColor, accentGlow]);
 
   useEffect(() => {
@@ -63,7 +68,6 @@ export const CinemaVisualizer: React.FC<CinemaVisualizerProps> = ({
       phase: (i * Math.PI) / 3.5,
     }));
 
-    let rafId: number;
     let lastTime = performance.now();
 
     const render = (now: number) => {
@@ -73,7 +77,7 @@ export const CinemaVisualizer: React.FC<CinemaVisualizerProps> = ({
 
       ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-      const isAudioActive = isPlayingRef.current;
+      const isAudioActive = isPlayingRef.current && !document.hidden;
       const currentColor = accentColorRef.current || '#FF2E55';
 
       const barWidth = 4;
@@ -164,15 +168,53 @@ export const CinemaVisualizer: React.FC<CinemaVisualizerProps> = ({
         ctx.restore();
       }
 
-      rafId = requestAnimationFrame(render);
+      if (isPlayingRef.current && !document.hidden) {
+        rafIdRef.current = requestAnimationFrame(render);
+      } else {
+        rafIdRef.current = null;
+      }
     };
 
-    rafId = requestAnimationFrame(render);
+    renderFrameRef.current = render;
 
     return () => {
-      if (rafId) cancelAnimationFrame(rafId);
+      renderFrameRef.current = null;
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
   }, []);
+
+  useEffect(() => {
+    const syncLoop = () => {
+      isPlayingRef.current = isPlaying;
+      if (isPlaying && !document.hidden) {
+        if (rafIdRef.current === null && renderFrameRef.current) {
+          rafIdRef.current = requestAnimationFrame(renderFrameRef.current);
+        }
+      } else {
+        if (rafIdRef.current !== null) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        if (renderFrameRef.current) {
+          renderFrameRef.current(performance.now());
+        }
+      }
+    };
+
+    syncLoop();
+    const handleVisibility = () => syncLoop();
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
+  }, [isPlaying]);
 
   return (
     <div

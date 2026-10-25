@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import {
   Play,
   Pause,
@@ -22,12 +22,18 @@ import { useLibraryStore } from '../stores/useLibraryStore';
 import { FormatBadge } from './FormatBadge';
 import { ProgressBar } from './ProgressBar';
 import { VolumeSlider } from './VolumeSlider';
+
+const DrawerProgressBar: React.FC<{ onSeek: (seconds: number) => void }> = memo(({ onSeek }) => {
+  const currentTime = usePlayerStore((state) => state.currentTime);
+  const duration = usePlayerStore((state) => state.duration);
+  return <ProgressBar currentTime={currentTime} duration={duration} onSeek={onSeek} />;
+});
+DrawerProgressBar.displayName = 'DrawerProgressBar';
+
 const NowPlayingDrawerContent: React.FC = () => {
   const {
     currentTrack,
     isPlaying,
-    currentTime,
-    duration,
     volume,
     isMuted,
     isShuffle,
@@ -53,8 +59,6 @@ const NowPlayingDrawerContent: React.FC = () => {
     useShallow((state) => ({
       currentTrack: state.currentTrack,
       isPlaying: state.isPlaying,
-      currentTime: state.currentTime,
-      duration: state.duration,
       volume: state.volume,
       isMuted: state.isMuted,
       isShuffle: state.isShuffle,
@@ -319,7 +323,7 @@ const NowPlayingDrawerContent: React.FC = () => {
         </div>
 
         {/* Seekbar */}
-        <ProgressBar currentTime={currentTime} duration={duration} onSeek={seek} />
+        <DrawerProgressBar onSeek={seek} />
 
         {/* Format Info Badge */}
         <div className="flex justify-center">

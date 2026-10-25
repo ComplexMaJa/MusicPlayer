@@ -38,6 +38,7 @@ interface LibraryStoreState {
   createPlaylist: (name: string, description?: string) => Promise<Playlist | null>;
   deletePlaylist: (id: string) => Promise<void>;
   addTrackToPlaylist: (playlistId: string, trackId: string) => Promise<void>;
+  addTracksToPlaylist: (playlistId: string, trackIds: string[]) => Promise<void>;
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => Promise<void>;
 }
 
@@ -167,6 +168,12 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   addTrackToPlaylist: async (playlistId: string, trackId: string) => {
     if (!window.electronAPI) return;
     await window.electronAPI.addTrackToPlaylist(playlistId, trackId);
+    await get().fetchLibraryData();
+  },
+
+  addTracksToPlaylist: async (playlistId: string, trackIds: string[]) => {
+    if (!window.electronAPI || !trackIds.length) return;
+    await window.electronAPI.addTracksToPlaylist(playlistId, trackIds);
     await get().fetchLibraryData();
   },
 
