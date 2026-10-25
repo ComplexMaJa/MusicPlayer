@@ -87,7 +87,7 @@ export const Playlists: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full select-none">
+    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full select-none will-change-scroll">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

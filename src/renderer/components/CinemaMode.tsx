@@ -278,7 +278,7 @@ const KaraokeLineItem: React.FC<KaraokeLineItemProps> = memo(
 );
 KaraokeLineItem.displayName = 'KaraokeLineItem';
 
-export const CinemaMode: React.FC = () => {
+const CinemaModeContent: React.FC = () => {
   const {
     currentTrack,
     isPlaying,
@@ -530,7 +530,7 @@ export const CinemaMode: React.FC = () => {
     };
   }, [isCinemaModeOpen, isProviderMenuOpen, togglePlay, seek, setVolume, volume, setCinemaModeOpen, resetIdleTimer]);
 
-  if (!isCinemaModeOpen || !currentTrack) return null;
+  if (!currentTrack) return null;
 
   const hasSyncedLyrics = Boolean(processedLyrics.length > 0);
   const activeLine = activeLineIndex >= 0 ? processedLyrics[activeLineIndex] : null;
@@ -581,13 +581,17 @@ export const CinemaMode: React.FC = () => {
 
       {/* 2. Top Navigation Bar */}
       <header
-        className={`relative z-20 flex items-center justify-between transition-opacity duration-300 ${
+        className={`relative z-20 flex items-center justify-between transition-opacity duration-300 app-drag-region ${
           isIdle ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 app-no-drag">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md font-black text-xs transition-colors duration-500"
+            onClick={() => setCinemaModeOpen(false)}
+            role="button"
+            tabIndex={0}
+            title="Exit Cinema Mode (Esc)"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-md font-black text-xs transition-colors duration-500 cursor-pointer hover:scale-105 active:scale-95"
             style={{
               backgroundColor: accentColor,
               boxShadow: `0 0 16px ${accentGlow}`,
@@ -603,7 +607,7 @@ export const CinemaMode: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 app-no-drag">
           <FormatBadge
             format={audioFormat}
             codec={currentTrack.codec}
@@ -959,3 +963,14 @@ export const CinemaMode: React.FC = () => {
     </div>
   );
 };
+CinemaModeContent.displayName = 'CinemaModeContent';
+
+export const CinemaMode: React.FC = () => {
+  const isCinemaModeOpen = usePlayerStore((state) => state.isCinemaModeOpen);
+  const hasTrack = usePlayerStore((state) => Boolean(state.currentTrack));
+
+  if (!isCinemaModeOpen || !hasTrack) return null;
+
+  return <CinemaModeContent />;
+};
+CinemaMode.displayName = 'CinemaMode';

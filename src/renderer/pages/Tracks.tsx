@@ -18,7 +18,7 @@ export const Tracks: React.FC = () => {
   }, [tracks, filterText]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none">
+    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll">
       {/* Header & Local Filter Input */}
       <div className="flex items-center justify-between">
         <div>
