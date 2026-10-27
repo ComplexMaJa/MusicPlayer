@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Play, Disc, ArrowLeft, Heart } from 'lucide-react';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { Album, Track } from '../../shared/types';
-import { TrackRow } from '../components/TrackRow';
+import { VirtualTrackList } from '../components/VirtualTrackList';
 
 export const AlbumDetail: React.FC = () => {
   const selectedAlbumId = useLibraryStore((state) => state.selectedAlbumId);
   const setActiveView = useLibraryStore((state) => state.setActiveView);
   const playTrack = usePlayerStore((state) => state.playTrack);
   const [albumData, setAlbumData] = useState<(Album & { tracks: Track[] }) | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (selectedAlbumId && window.electronAPI) {
@@ -38,8 +39,13 @@ export const AlbumDetail: React.FC = () => {
     }
   };
 
+  const albumTracks = albumData.tracks ?? [];
+
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full select-none will-change-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full select-none will-change-scroll"
+    >
       {/* Back Button */}
       <button
         onClick={() => setActiveView('albums')}
@@ -110,9 +116,11 @@ export const AlbumDetail: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-1">
-          {albumData.tracks?.map((track, idx) => (
-            <TrackRow key={track.id} track={track} index={idx} queueContext={albumData.tracks} />
-          ))}
+          <VirtualTrackList
+            tracks={albumTracks}
+            queueContext={albumTracks}
+            scrollRef={scrollRef}
+          />
         </div>
       </section>
     </div>

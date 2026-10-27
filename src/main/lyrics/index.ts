@@ -22,7 +22,7 @@ export function parseLrc(lrcText: string): LyricLine[] {
     }
   }
 
-  const timeTagRegex = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
+  const timeTagRegex = /\[\s*(\d+):(\d{2})(?:[.:](\d+))?\s*\]/g;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -183,7 +183,8 @@ export async function getLyricsForTrack(
   const hasLocalSynced = Boolean(localData?.syncedLyrics.length);
   const hasEmbeddedSynced = Boolean(embeddedData?.syncedLyrics.length);
   const needOnline =
-    preferredProvider === 'online' || (!hasLocalSynced && !hasEmbeddedSynced);
+    preferredProvider === 'online' ||
+    (preferredProvider === 'auto' && !hasLocalSynced && !hasEmbeddedSynced);
 
   if (needOnline && track.title && track.artist && track.artist !== 'Unknown Artist') {
     const cacheKey = getOnlineCacheKey(track);

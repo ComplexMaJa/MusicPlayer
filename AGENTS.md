@@ -28,7 +28,7 @@ MaJa Player (`package.json` name `maja-player`) is an Electron desktop music pla
 - Electron hardening is configured in `main/index.ts` and `vite.config.ts`: single-instance lock, sandboxed preload, permission denial, navigation guard, and a CSP injected into the production HTML. Add any new external script/style/font/image/media origin to the CSP or it will be blocked.
 - Watcher-driven rescans emit `library:changed`; `App.tsx` subscribes through `window.electronAPI.onLibraryChanged` and refreshes the library. Manual scans refresh directly in `useLibraryStore.scanFolders`. Artwork cache files are content-hashed and pruned after successful scans; lyrics use an in-process LRCLIB cache and skip online lookups when local/embedded synced lyrics exist.
 - Track IDs are MD5 of the absolute path; album IDs are `${artist}___${title}`; artist IDs are names. Albums/artists are `GROUP BY` queries, not tables. Moving/renaming files or changing album/artist tags changes IDs and loses playlist/favorite associations.
-- Library extensions are centralized in `shared/constants/index.ts` (`.flac`, `.mp3`, `.wav`, `.ogg`). `main/audio` additionally knows `.m4a`/`.aac`, but the scanner ignores them; update both for new formats.
+- Library extensions are centralized in `shared/constants/index.ts` (`.flac`, `.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`) and mirrored by `main/audio` MIME detection; update both for new formats.
 - Main/preload are bundled to CJS. `__dirname` is available, but avoid ESM-only constructs (top-level await, `import.meta`) that esbuild cannot lower to CJS.
 
 ## UI

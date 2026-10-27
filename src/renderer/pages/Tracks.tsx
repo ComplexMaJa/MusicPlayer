@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useLibraryStore } from '../stores/useLibraryStore';
-import { TrackRow } from '../components/TrackRow';
+import { VirtualTrackList } from '../components/VirtualTrackList';
 
 export const Tracks: React.FC = () => {
   const tracks = useLibraryStore((state) => state.tracks);
   const [filterText, setFilterText] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const filteredTracks = useMemo(() => {
     const query = filterText.toLowerCase();
@@ -18,7 +19,10 @@ export const Tracks: React.FC = () => {
   }, [tracks, filterText]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll"
+    >
       {/* Header & Local Filter Input */}
       <div className="flex items-center justify-between">
         <div>
@@ -61,9 +65,11 @@ export const Tracks: React.FC = () => {
         </div>
 
         {filteredTracks.length > 0 ? (
-          filteredTracks.map((track, idx) => (
-            <TrackRow key={track.id} track={track} index={idx} queueContext={filteredTracks} />
-          ))
+          <VirtualTrackList
+            tracks={filteredTracks}
+            queueContext={filteredTracks}
+            scrollRef={scrollRef}
+          />
         ) : (
           <div className="py-12 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl text-xs text-[#666666]">
             No matching tracks found.

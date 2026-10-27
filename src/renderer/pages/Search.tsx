@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Search as SearchIcon, ListMusic } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
-import { TrackRow } from '../components/TrackRow';
+import { VirtualTrackList } from '../components/VirtualTrackList';
 import { AlbumCard } from '../components/AlbumCard';
 import { ArtistCard } from '../components/ArtistCard';
 
@@ -29,6 +29,7 @@ export const Search: React.FC = () => {
     }))
   );
   const [activeTab, setActiveTab] = useState<SearchTab>('all');
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const query = searchQuery.toLowerCase().trim();
 
@@ -84,7 +85,10 @@ export const Search: React.FC = () => {
             : filteredPlaylists.length > 0;
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll"
+    >
       {/* Search Header */}
       <div className="flex flex-col gap-4">
         <h1 className="text-3xl font-bold text-white tracking-tight">SEARCH</h1>
@@ -130,9 +134,11 @@ export const Search: React.FC = () => {
                 SONGS ({filteredTracks.length})
               </h2>
               <div className="flex flex-col gap-1">
-                {visibleTracks.map((track, idx) => (
-                  <TrackRow key={track.id} track={track} index={idx} queueContext={filteredTracks} />
-                ))}
+                <VirtualTrackList
+                  tracks={visibleTracks}
+                  queueContext={filteredTracks}
+                  scrollRef={scrollRef}
+                />
               </div>
             </section>
           )}

@@ -33,6 +33,7 @@ interface LibraryStoreState {
   setSelectedArtistId: (id: string | null) => void;
   setSelectedPlaylistId: (id: string | null) => void;
   fetchLibraryData: () => Promise<void>;
+  fetchPlaylists: () => Promise<void>;
   scanFolders: (folders: string[]) => Promise<void>;
   toggleFavorite: (trackId: string) => Promise<void>;
   createPlaylist: (name: string, description?: string) => Promise<Playlist | null>;
@@ -91,6 +92,19 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       });
     } catch (err) {
       console.error('Error fetching library data:', err);
+    }
+  },
+
+  fetchPlaylists: async () => {
+    if (!window.electronAPI) return;
+    try {
+      const playlists = await window.electronAPI.getPlaylists();
+      set((state) => ({
+        playlists,
+        stats: { ...state.stats, playlistCount: playlists.length },
+      }));
+    } catch (err) {
+      console.error('Error fetching playlists:', err);
     }
   },
 
@@ -155,31 +169,31 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   createPlaylist: async (name: string, description?: string) => {
     if (!window.electronAPI) return null;
     const pl = await window.electronAPI.createPlaylist(name, description);
-    await get().fetchLibraryData();
+    await get().fetchPlaylists();
     return pl;
   },
 
   deletePlaylist: async (id: string) => {
     if (!window.electronAPI) return;
     await window.electronAPI.deletePlaylist(id);
-    await get().fetchLibraryData();
+    await get().fetchPlaylists();
   },
 
   addTrackToPlaylist: async (playlistId: string, trackId: string) => {
     if (!window.electronAPI) return;
     await window.electronAPI.addTrackToPlaylist(playlistId, trackId);
-    await get().fetchLibraryData();
+    await get().fetchPlaylists();
   },
 
   addTracksToPlaylist: async (playlistId: string, trackIds: string[]) => {
     if (!window.electronAPI || !trackIds.length) return;
     await window.electronAPI.addTracksToPlaylist(playlistId, trackIds);
-    await get().fetchLibraryData();
+    await get().fetchPlaylists();
   },
 
   removeTrackFromPlaylist: async (playlistId: string, trackId: string) => {
     if (!window.electronAPI) return;
     await window.electronAPI.removeTrackFromPlaylist(playlistId, trackId);
-    await get().fetchLibraryData();
+    await get().fetchPlaylists();
   },
 }));

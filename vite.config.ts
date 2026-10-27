@@ -6,11 +6,13 @@ import path from 'path';
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
+  "script-src-attr 'none'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https: maja-artwork:",
   "media-src 'self' blob: maja-audio:",
   "connect-src 'self'",
+  "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

@@ -116,7 +116,7 @@ export const TrackRow: React.FC<TrackRowProps> = memo(({ track, index, queueCont
           handleRowClick();
         }
       }}
-      className={`grid grid-cols-12 items-center px-4 py-2.5 rounded-xl text-xs transition-all duration-150 ease-out group cursor-pointer select-none border relative ${
+      className={`grid grid-cols-12 items-center px-4 py-2.5 rounded-xl text-xs transition-all duration-150 ease-out group cursor-pointer select-none border relative h-[50px] ${
         isCurrent
           ? 'bg-[#101010] text-white shadow-sm'
           : 'bg-transparent border-transparent hover:bg-[#0A0A0A] hover:border-[#1A1A1A] text-[#A3A3A3] hover:text-[#EDEDED]'

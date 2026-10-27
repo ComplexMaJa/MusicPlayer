@@ -10,7 +10,10 @@ let db: Database | null = null;
 let dbPath = '';
 
 const DB_FILENAME = 'maja-library.db';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const DATABASE_SAVE_DEBOUNCE_MS = 500;
+
+let pendingSaveTimer: NodeJS.Timeout | null = null;
 
 function getBackupPath(): string {
   return `${dbPath}.bak`;
@@ -123,21 +126,19 @@ function createSchema(database: Database): void {
       FOREIGN KEY (playlistId) REFERENCES playlists(id) ON DELETE CASCADE,
       FOREIGN KEY (trackId) REFERENCES tracks(id) ON DELETE CASCADE
     );
+  `);
+}
 
-    CREATE TABLE IF NOT EXISTS folders (
-      path TEXT PRIMARY KEY,
-      lastScanned INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
+function createIndexes(database: Database): void {
+  database.run(`
     CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist);
     CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
     CREATE INDEX IF NOT EXISTS idx_tracks_favorite ON tracks(isFavorite);
+    CREATE INDEX IF NOT EXISTS idx_tracks_dateAdded ON tracks(dateAdded DESC);
+    CREATE INDEX IF NOT EXISTS idx_tracks_lastPlayed ON tracks(lastPlayed DESC);
+    CREATE INDEX IF NOT EXISTS idx_tracks_artist_album ON tracks(artist, album);
     CREATE INDEX IF NOT EXISTS idx_playlist_tracks_track ON playlist_tracks(trackId);
+    CREATE INDEX IF NOT EXISTS idx_playlist_tracks_pos ON playlist_tracks(playlistId, position);
   `);
 }
 
@@ -163,14 +164,29 @@ function seedDefaultPlaylists(database: Database): void {
   }
 }
 
+type Migration = (database: Database) => void;
+
+const MIGRATIONS: Record<number, Migration> = {
+  1: (database) => {
+    createSchema(database);
+  },
+  2: (database) => {
+    createIndexes(database);
+  },
+};
+
 function initializeSchema(database: Database, isNewDatabase: boolean): void {
   // Foreign keys are connection-scoped and must be enabled on every launch.
   database.run('PRAGMA foreign_keys = ON');
 
   const currentVersion = getUserVersion(database);
-  if (currentVersion < SCHEMA_VERSION) {
-    createSchema(database);
-    database.run(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  for (let version = currentVersion + 1; version <= SCHEMA_VERSION; version++) {
+    const migration = MIGRATIONS[version];
+    if (!migration) {
+      throw new Error(`Missing database migration for schema version ${version}`);
+    }
+    migration(database);
+    database.run(`PRAGMA user_version = ${version}`);
   }
 
   // Clean up orphaned playlist entries left behind by older versions where
@@ -221,6 +237,11 @@ export async function initDatabase(): Promise<Database> {
 }
 
 export function saveDatabase(): boolean {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+
   if (!db || !dbPath) return false;
 
   const backupPath = getBackupPath();
@@ -278,6 +299,37 @@ export function saveDatabase(): boolean {
   }
 }
 
+/**
+ * Persists the in-memory database after a short quiet period. User-visible
+ * state is updated in memory immediately, so rapid streams of writes (play
+ * counts, favorites, playlist edits) collapse into one export + fsync instead
+ * of blocking the main thread on every change.
+ */
+export function scheduleDatabaseSave(delayMs = DATABASE_SAVE_DEBOUNCE_MS): void {
+  if (!db || !dbPath) return;
+
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+  }
+
+  pendingSaveTimer = setTimeout(() => {
+    pendingSaveTimer = null;
+    saveDatabase();
+  }, delayMs);
+}
+
+/** Writes any buffered changes immediately, including during app shutdown. */
+export function flushDatabaseSave(): void {
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+
+  if (db && dbPath) {
+    saveDatabase();
+  }
+}
+
 export function normalizePathForPlatform(p: string): string {
   const resolved = path.resolve(p);
   if (process.platform === 'win32') {
@@ -326,30 +378,33 @@ export function upsertTrack(track: Track): void {
       artworkPath=excluded.artworkPath;
   `);
 
-  stmt.run([
-    track.id,
-    track.path,
-    track.title,
-    track.artist,
-    track.album,
-    track.albumArtist || null,
-    track.trackNumber || null,
-    track.discNumber || null,
-    track.genre || null,
-    track.year || null,
-    track.duration,
-    track.codec,
-    track.sampleRate || null,
-    track.bitDepth || null,
-    track.bitrate || null,
-    track.channels || null,
-    track.artworkPath || null,
-    track.dateAdded,
-    track.lastPlayed || null,
-    track.playCount || 0,
-    track.isFavorite ? 1 : 0,
-  ]);
-  stmt.free();
+  try {
+    stmt.run([
+      track.id,
+      track.path,
+      track.title,
+      track.artist,
+      track.album,
+      track.albumArtist || null,
+      track.trackNumber || null,
+      track.discNumber || null,
+      track.genre || null,
+      track.year || null,
+      track.duration,
+      track.codec,
+      track.sampleRate || null,
+      track.bitDepth || null,
+      track.bitrate || null,
+      track.channels || null,
+      track.artworkPath || null,
+      track.dateAdded,
+      track.lastPlayed || null,
+      track.playCount || 0,
+      track.isFavorite ? 1 : 0,
+    ]);
+  } finally {
+    stmt.free();
+  }
 }
 
 export function getAllTracks(): Track[] {
@@ -434,19 +489,25 @@ export function getFavorites(): Track[] {
 export function toggleFavoriteInDb(trackId: string): boolean {
   if (!db) return false;
   const stmt = db.prepare(`SELECT isFavorite FROM tracks WHERE id = ?`);
-  stmt.bind([trackId]);
-  if (!stmt.step()) {
+  let current = 0;
+  try {
+    stmt.bind([trackId]);
+    if (!stmt.step()) {
+      return false;
+    }
+    current = stmt.get()[0] as number;
+  } finally {
     stmt.free();
-    return false;
   }
-  const current = stmt.get()[0] as number;
-  stmt.free();
 
   const nextVal = current === 1 ? 0 : 1;
   const updateStmt = db.prepare(`UPDATE tracks SET isFavorite = ? WHERE id = ?`);
-  updateStmt.run([nextVal, trackId]);
-  updateStmt.free();
-  saveDatabase();
+  try {
+    updateStmt.run([nextVal, trackId]);
+  } finally {
+    updateStmt.free();
+  }
+  scheduleDatabaseSave();
   return nextVal === 1;
 }
 
@@ -454,9 +515,12 @@ export function recordPlayInDb(trackId: string): void {
   if (!db) return;
   const now = Date.now();
   const stmt = db.prepare(`UPDATE tracks SET playCount = playCount + 1, lastPlayed = ? WHERE id = ?`);
-  stmt.run([now, trackId]);
-  stmt.free();
-  saveDatabase();
+  try {
+    stmt.run([now, trackId]);
+  } finally {
+    stmt.free();
+  }
+  scheduleDatabaseSave();
 }
 
 export function getAlbums(): Album[] {
@@ -575,7 +639,7 @@ export function createPlaylistInDb(name: string, description?: string): Playlist
     `INSERT INTO playlists (id, name, description, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)`,
     [id, name, description || null, now, now]
   );
-  saveDatabase();
+  scheduleDatabaseSave();
   return {
     id,
     name,
@@ -590,14 +654,20 @@ export function createPlaylistInDb(name: string, description?: string): Playlist
 export function deletePlaylistInDb(id: string): boolean {
   if (!db) return false;
   const delPl = db.prepare(`DELETE FROM playlists WHERE id = ?`);
-  delPl.run([id]);
-  delPl.free();
+  try {
+    delPl.run([id]);
+  } finally {
+    delPl.free();
+  }
 
   const delTracks = db.prepare(`DELETE FROM playlist_tracks WHERE playlistId = ?`);
-  delTracks.run([id]);
-  delTracks.free();
+  try {
+    delTracks.run([id]);
+  } finally {
+    delTracks.free();
+  }
 
-  saveDatabase();
+  scheduleDatabaseSave();
   return true;
 }
 
@@ -653,7 +723,7 @@ export function addTracksToPlaylistInDb(playlistId: string, trackIds: string[]):
     if (updateStmt) updateStmt.free();
   }
 
-  saveDatabase();
+  scheduleDatabaseSave();
   return true;
 }
 
@@ -666,14 +736,20 @@ export function addTrackToPlaylistInDb(playlistId: string, trackId: string): boo
 export function removeTrackFromPlaylistInDb(playlistId: string, trackId: string): boolean {
   if (!db) return false;
   const delStmt = db.prepare(`DELETE FROM playlist_tracks WHERE playlistId = ? AND trackId = ?`);
-  delStmt.run([playlistId, trackId]);
-  delStmt.free();
+  try {
+    delStmt.run([playlistId, trackId]);
+  } finally {
+    delStmt.free();
+  }
 
   const updateStmt = db.prepare(`UPDATE playlists SET updatedAt = ? WHERE id = ?`);
-  updateStmt.run([Date.now(), playlistId]);
-  updateStmt.free();
+  try {
+    updateStmt.run([Date.now(), playlistId]);
+  } finally {
+    updateStmt.free();
+  }
 
-  saveDatabase();
+  scheduleDatabaseSave();
   return true;
 }
 
@@ -685,14 +761,17 @@ export function getPlaylistTracksFromDb(playlistId: string): Track[] {
     WHERE pt.playlistId = ?
     ORDER BY pt.position ASC
   `);
-  stmt.bind([playlistId]);
   const tracks: Track[] = [];
-  const columns = stmt.getColumnNames();
-  while (stmt.step()) {
-    const row = stmt.get();
-    tracks.push(mapRowToTrack(columns, row));
+  try {
+    stmt.bind([playlistId]);
+    const columns = stmt.getColumnNames();
+    while (stmt.step()) {
+      const row = stmt.get();
+      tracks.push(mapRowToTrack(columns, row));
+    }
+  } finally {
+    stmt.free();
   }
-  stmt.free();
   return tracks;
 }
 

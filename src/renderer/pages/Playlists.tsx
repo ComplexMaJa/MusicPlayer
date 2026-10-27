@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Play, Trash2, Disc, ListMusic, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { Track } from '../../shared/types';
-import { TrackRow } from '../components/TrackRow';
+import { VirtualTrackList } from '../components/VirtualTrackList';
 
 export const Playlists: React.FC = () => {
   const {
@@ -30,6 +30,7 @@ export const Playlists: React.FC = () => {
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [activePlaylistTracks, setActivePlaylistTracks] = useState<Track[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Default to first playlist if none selected
   const activePlaylist =
@@ -74,10 +75,6 @@ export const Playlists: React.FC = () => {
     e.stopPropagation();
     if (!activePlaylist) return;
     await removeTrackFromPlaylist(activePlaylist.id, trackId);
-    if (window.electronAPI) {
-      const updated = await window.electronAPI.getPlaylistTracks(activePlaylist.id);
-      setActivePlaylistTracks(updated);
-    }
   };
 
   const handlePlayPlaylist = () => {
@@ -87,7 +84,10 @@ export const Playlists: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full select-none will-change-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto p-8 flex flex-col gap-8 max-w-6xl mx-auto w-full select-none will-change-scroll"
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -313,9 +313,11 @@ export const Playlists: React.FC = () => {
             </div>
 
             {activePlaylistTracks.length > 0 ? (
-              activePlaylistTracks.map((track, idx) => (
-                <div key={track.id} className="relative group">
-                  <TrackRow track={track} index={idx} queueContext={activePlaylistTracks} />
+              <VirtualTrackList
+                tracks={activePlaylistTracks}
+                queueContext={activePlaylistTracks}
+                scrollRef={scrollRef}
+                renderRowExtra={(track) => (
                   <button
                     onClick={(e) => handleRemoveTrackFromActivePlaylist(track.id, e)}
                     className="absolute right-24 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-[#FF4D67] hover:text-red-400 p-1 font-mono text-[10px]"
@@ -323,8 +325,8 @@ export const Playlists: React.FC = () => {
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
-                </div>
-              ))
+                )}
+              />
             ) : (
               <div className="py-12 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl text-xs text-[#666666]">
                 This playlist has no songs yet. Hover over any track in Tracks or Albums and click the <strong className="text-white">+ icon</strong> to add it to this playlist.

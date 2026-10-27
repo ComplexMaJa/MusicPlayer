@@ -1,12 +1,13 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Heart, Play } from 'lucide-react';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { usePlayerStore } from '../stores/usePlayerStore';
-import { TrackRow } from '../components/TrackRow';
+import { VirtualTrackList } from '../components/VirtualTrackList';
 
 export const Favorites: React.FC = () => {
   const favorites = useLibraryStore((state) => state.favorites);
   const playTrack = usePlayerStore((state) => state.playTrack);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const handlePlayAll = () => {
     if (favorites.length > 0) {
@@ -15,7 +16,10 @@ export const Favorites: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 max-w-6xl mx-auto w-full select-none will-change-scroll"
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -55,9 +59,11 @@ export const Favorites: React.FC = () => {
         </div>
 
         {favorites.length > 0 ? (
-          favorites.map((track, idx) => (
-            <TrackRow key={track.id} track={track} index={idx} queueContext={favorites} />
-          ))
+          <VirtualTrackList
+            tracks={favorites}
+            queueContext={favorites}
+            scrollRef={scrollRef}
+          />
         ) : (
           <div className="py-16 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl flex flex-col items-center gap-3 text-xs text-[#666666]">
             <Heart className="w-8 h-8 opacity-50" style={{ color: 'var(--accent-color, #FF2E55)' }} />

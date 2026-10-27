@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, session, shell } from 'electron';
 import path from 'path';
-import { pathToFileURL } from 'url';
-import { initDatabase } from './database';
+import { initDatabase, flushDatabaseSave } from './database';
 import { registerIpcHandlers } from './ipc';
 import { registerAudioSchemes, registerAudioProtocols } from './audio';
+import { isAllowedInternalUrl } from './security';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -13,6 +13,10 @@ app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
 app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,VaapiVideoDecoder');
+
+// Enforce the Chromium sandbox for every renderer, not just ones created with
+// an explicit webPreferences flag.
+app.enableSandbox();
 
 function openExternalIfSafe(url: string): void {
   try {
@@ -27,26 +31,8 @@ function openExternalIfSafe(url: string): void {
   }
 }
 
-function isAllowedInternalNavigation(url: string): boolean {
-  try {
-    const target = new URL(url);
-    const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-
-    if (devServerUrl) {
-      return target.origin === new URL(devServerUrl).origin;
-    }
-
-    const rendererIndexUrl = pathToFileURL(
-      path.resolve(__dirname, '../renderer/index.html')
-    ).href;
-    return target.href.split('#')[0] === rendererIndexUrl;
-  } catch {
-    return false;
-  }
-}
-
 function guardNavigation(event: Electron.Event, url: string): void {
-  if (isAllowedInternalNavigation(url)) return;
+  if (isAllowedInternalUrl(url)) return;
 
   event.preventDefault();
   openExternalIfSafe(url);
@@ -75,8 +61,14 @@ async function createWindow() {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
       sandbox: true,
       webSecurity: true,
+      webviewTag: false,
+      navigateOnDragDrop: false,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
     },
   });
 
@@ -92,6 +84,16 @@ async function createWindow() {
 
   mainWindow.webContents.on('will-navigate', guardNavigation);
   mainWindow.webContents.on('will-redirect', guardNavigation);
+
+  // Subframes must never navigate outside the application either.
+  mainWindow.webContents.on('will-frame-navigate', (details) => {
+    if (details.isMainFrame || isAllowedInternalUrl(details.url)) return;
+    details.preventDefault();
+  });
+
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+  });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     openExternalIfSafe(details.url);
@@ -129,6 +131,10 @@ if (!gotSingleInstanceLock) {
       app.quit();
     });
 
+  app.on('before-quit', () => {
+    flushDatabaseSave();
+  });
+
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
       app.quit();
@@ -137,7 +143,9 @@ if (!gotSingleInstanceLock) {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      void createWindow();
+      void createWindow().catch((err) => {
+        console.error('Failed to recreate MaJa Player window:', err);
+      });
     }
   });
 }

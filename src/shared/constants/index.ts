@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lyricsProvider: 'auto',
 };
 
-export const SUPPORTED_EXTENSIONS = ['.flac', '.mp3', '.wav', '.ogg'];
+export const SUPPORTED_EXTENSIONS = ['.flac', '.mp3', '.wav', '.ogg', '.m4a', '.aac'];
 
 export const THEME_COLORS = {
   bgPrimary: '#050505',

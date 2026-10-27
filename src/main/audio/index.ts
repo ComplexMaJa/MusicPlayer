@@ -10,24 +10,78 @@ import { isTrackPathKnown } from '../database';
 import { ensureArtworkDirExists } from '../library';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif']);
+const approvedWallpaperPaths = new Set<string>();
+
+function normalizePathForComparison(filePath: string): string {
+  const resolved = path.resolve(filePath);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function extractWallpaperPath(url: unknown): string | null {
+  if (typeof url !== 'string' || !url.startsWith('maja-artwork://load')) return null;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'maja-artwork:' || parsed.hostname !== 'load') return null;
+
+    const rawPath = parsed.searchParams.get('path');
+    if (!rawPath) return null;
+
+    // URLSearchParams already percent-decodes the value.
+    return path.resolve(rawPath);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Records a wallpaper that the user picked through the native file dialog.
+ * Only paths registered here (or an already persisted, unchanged value) may be
+ * written to settings, which prevents the renderer from pointing the privileged
+ * artwork protocol at arbitrary files.
+ */
+export function rememberSelectedWallpaper(filePath: string): string | null {
+  try {
+    const resolved = path.resolve(filePath);
+    if (!isImagePath(resolved) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+      return null;
+    }
+
+    approvedWallpaperPaths.add(normalizePathForComparison(resolved));
+    return `maja-artwork://load?path=${encodeURIComponent(resolved)}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function isAllowedWallpaperUrl(value: unknown): boolean {
+  if (value === '' || value === undefined || value === null) return true;
+  if (typeof value !== 'string') return false;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch (_) {
+    return false;
+  }
+
+  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return true;
+  if (parsed.protocol !== 'maja-artwork:' || parsed.hostname !== 'load') return false;
+
+  try {
+    const approvedPath = extractWallpaperPath(value);
+    return approvedPath !== null && approvedWallpaperPaths.has(normalizePathForComparison(approvedPath));
+  } catch (_) {
+    return false;
+  }
+}
 
 function getAllowedWallpaperPath(): string | null {
   try {
     const settingsPath = path.join(app.getPath('userData'), 'settings.json');
     if (!fs.existsSync(settingsPath)) return null;
     const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    const customBg = data?.customBackgroundUrl;
-    if (typeof customBg === 'string' && customBg.startsWith('maja-artwork://load')) {
-      const parsedBg = new URL(customBg);
-      const rawPath = parsedBg.searchParams.get('path');
-      if (rawPath) {
-        let decoded = rawPath;
-        try {
-          decoded = decodeURIComponent(rawPath);
-        } catch (_) {}
-        return path.resolve(decoded);
-      }
-    }
+    return extractWallpaperPath(data?.customBackgroundUrl);
   } catch (_) {}
   return null;
 }
@@ -45,19 +99,25 @@ function isImagePath(filePath: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
 }
 
-function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
-  if (!match) return null;
+type ParsedRange =
+  | { kind: 'none' }
+  | { kind: 'satisfiable'; start: number; end: number }
+  | { kind: 'unsatisfiable' };
+
+function parseRangeHeader(rangeHeader: string, fileSize: number): ParsedRange {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim().replace(/\s+/g, ''));
+  // RFC 9110 §14.1.2: syntactically invalid Range headers must be ignored.
+  if (!match) return { kind: 'none' };
 
   const [, rawStart, rawEnd] = match;
-  if (!rawStart && !rawEnd) return null;
+  if (!rawStart && !rawEnd) return { kind: 'none' };
 
   let start: number;
   let end: number;
 
   if (!rawStart) {
     const suffixLength = Number(rawEnd);
-    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return { kind: 'none' };
     start = Math.max(0, fileSize - suffixLength);
     end = fileSize - 1;
   } else {
@@ -65,10 +125,10 @@ function parseRangeHeader(rangeHeader: string, fileSize: number): { start: numbe
     end = rawEnd ? Number(rawEnd) : fileSize - 1;
   }
 
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return null;
-  if (start < 0 || start >= fileSize || end < start) return null;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return { kind: 'none' };
+  if (start < 0 || start >= fileSize || end < start) return { kind: 'unsatisfiable' };
 
-  return { start, end: Math.min(end, fileSize - 1) };
+  return { kind: 'satisfiable', start, end: Math.min(end, fileSize - 1) };
 }
 
 function getMimeType(filePath: string): string {
@@ -121,6 +181,14 @@ export function registerAudioProtocols(): void {
   audioProtocolsRegistered = true;
   protocol.handle('maja-audio', (request) => {
     try {
+      const method = request.method.toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD') {
+        return new Response('Method Not Allowed', {
+          status: 405,
+          headers: { Allow: 'GET, HEAD' },
+        });
+      }
+
       const parsedUrl = new URL(request.url);
       if (parsedUrl.hostname !== 'stream') {
         return new Response('File not found', { status: 404 });
@@ -144,31 +212,55 @@ export function registerAudioProtocols(): void {
       const fileSize = stat.size;
       const mimeType = getMimeType(filePath);
       const rangeHeader = request.headers.get('range');
+      const baseHeaders = {
+        'Accept-Ranges': 'bytes',
+        'Content-Type': mimeType,
+        'X-Content-Type-Options': 'nosniff',
+      };
 
       if (rangeHeader) {
         const range = parseRangeHeader(rangeHeader, fileSize);
-        if (!range) {
+
+        if (range.kind === 'unsatisfiable') {
           return new Response('Range Not Satisfiable', {
             status: 416,
             headers: {
               'Content-Range': `bytes */${fileSize}`,
               'Accept-Ranges': 'bytes',
+              'X-Content-Type-Options': 'nosniff',
             },
           });
         }
 
-        const { start, end } = range;
-        const nodeStream = fs.createReadStream(filePath, { start, end });
-        const webStream = Readable.toWeb(nodeStream);
-
-        return new Response(webStream as any, {
-          status: 206,
-          statusText: 'Partial Content',
-          headers: {
+        if (range.kind === 'satisfiable') {
+          const { start, end } = range;
+          const headers = {
+            ...baseHeaders,
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-            'Accept-Ranges': 'bytes',
             'Content-Length': (end - start + 1).toString(),
-            'Content-Type': mimeType,
+          };
+
+          if (method === 'HEAD') {
+            return new Response(null, { status: 206, statusText: 'Partial Content', headers });
+          }
+
+          const nodeStream = fs.createReadStream(filePath, { start, end });
+          const webStream = Readable.toWeb(nodeStream);
+
+          return new Response(webStream as any, {
+            status: 206,
+            statusText: 'Partial Content',
+            headers,
+          });
+        }
+      }
+
+      if (method === 'HEAD') {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            ...baseHeaders,
+            'Content-Length': fileSize.toString(),
           },
         });
       }
@@ -179,9 +271,8 @@ export function registerAudioProtocols(): void {
       return new Response(webStream as any, {
         status: 200,
         headers: {
+          ...baseHeaders,
           'Content-Length': fileSize.toString(),
-          'Accept-Ranges': 'bytes',
-          'Content-Type': mimeType,
         },
       });
     } catch (err) {
@@ -192,6 +283,14 @@ export function registerAudioProtocols(): void {
 
   protocol.handle('maja-artwork', (request) => {
     try {
+      const method = request.method.toUpperCase();
+      if (method !== 'GET' && method !== 'HEAD') {
+        return new Response('Method Not Allowed', {
+          status: 405,
+          headers: { Allow: 'GET, HEAD' },
+        });
+      }
+
       const parsedUrl = new URL(request.url);
 
       if (parsedUrl.hostname === 'stream') {
@@ -218,30 +317,21 @@ export function registerAudioProtocols(): void {
       }
 
       if (parsedUrl.hostname === 'load') {
-        const directPath = parsedUrl.searchParams.get('path');
-        if (!directPath) {
+        const targetPath = extractWallpaperPath(request.url);
+        if (!targetPath) {
           return new Response('Artwork not found', { status: 404 });
         }
 
-        let targetPath = directPath;
-        try {
-          targetPath = decodeURIComponent(targetPath);
-        } catch (_) {}
-        targetPath = path.resolve(targetPath);
-
         const allowedWallpaperPath = getAllowedWallpaperPath();
         const isMatch =
-          Boolean(allowedWallpaperPath) &&
-          (process.platform === 'win32'
-            ? targetPath.toLowerCase() === allowedWallpaperPath!.toLowerCase()
-            : targetPath === allowedWallpaperPath);
+          allowedWallpaperPath !== null &&
+          normalizePathForComparison(targetPath) === normalizePathForComparison(allowedWallpaperPath);
 
         if (!isMatch) {
           return new Response('Access denied: unapproved wallpaper path', { status: 403 });
         }
 
         if (
-          !path.isAbsolute(targetPath) ||
           !isImagePath(targetPath) ||
           !fs.existsSync(targetPath) ||
           !fs.statSync(targetPath).isFile()
