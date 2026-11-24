@@ -39,6 +39,13 @@ function getBackupPath(): string {
 function locateSqlWasmFile(file: string, scriptDirectory: string): string {
   const candidates: string[] = [];
 
+  const bundleCandidate = path.join(__dirname, file);
+  const unpackedBundleCandidate = bundleCandidate.replace(/app\.asar([\\/])/i, 'app.asar.unpacked$1');
+  if (unpackedBundleCandidate !== bundleCandidate) {
+    candidates.push(unpackedBundleCandidate);
+  }
+  candidates.push(bundleCandidate);
+
   if (process.resourcesPath) {
     candidates.push(
       path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'sql.js', 'dist', file)
@@ -68,7 +75,6 @@ function locateSqlWasmFile(file: string, scriptDirectory: string): string {
     // Ignore if app path is unavailable.
   }
 
-  candidates.push(path.join(__dirname, file));
   candidates.push(path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist', file));
 
   if (scriptDirectory) {

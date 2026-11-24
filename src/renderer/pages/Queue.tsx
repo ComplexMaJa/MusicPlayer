@@ -7,18 +7,27 @@ import { Track } from '../../shared/types';
 import { VirtualTrackList } from '../components/VirtualTrackList';
 
 export const Queue: React.FC = () => {
-  const { queue, queueIndex, history, currentTrack, removeFromQueue, clearQueue, playTrack } =
-    usePlayerStore(
-      useShallow((state) => ({
-        queue: state.queue,
-        queueIndex: state.queueIndex,
-        history: state.history,
-        currentTrack: state.currentTrack,
-        removeFromQueue: state.removeFromQueue,
-        clearQueue: state.clearQueue,
-        playTrack: state.playTrack,
-      }))
-    );
+  const {
+    queue,
+    queueIndex,
+    history,
+    currentTrack,
+    removeFromQueue,
+    clearQueue,
+    playTrack,
+    playQueueIndex,
+  } = usePlayerStore(
+    useShallow((state) => ({
+      queue: state.queue,
+      queueIndex: state.queueIndex,
+      history: state.history,
+      currentTrack: state.currentTrack,
+      removeFromQueue: state.removeFromQueue,
+      clearQueue: state.clearQueue,
+      playTrack: state.playTrack,
+      playQueueIndex: state.playQueueIndex,
+    }))
+  );
   const { createPlaylist, addTracksToPlaylist, setActiveView } = useLibraryStore(
     useShallow((state) => ({
       createPlaylist: state.createPlaylist,
@@ -63,19 +72,9 @@ export const Queue: React.FC = () => {
     }
   };
 
-  const handlePlayUpNext = (track: Track, upNextIdx: number) => {
+  const handlePlayUpNext = (_track: Track, upNextIdx: number) => {
     const targetIndex = queueIndex + 1 + upNextIdx;
-    const playQueueIndex = (
-      usePlayerStore.getState() as ReturnType<typeof usePlayerStore.getState> & {
-        playQueueIndex?: (index: number) => void | Promise<void>;
-      }
-    ).playQueueIndex;
-
-    if (playQueueIndex) {
-      void playQueueIndex(targetIndex);
-    } else {
-      playTrack(track, queue);
-    }
+    void playQueueIndex(targetIndex);
   };
 
   return (

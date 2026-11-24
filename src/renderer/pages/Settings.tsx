@@ -74,6 +74,7 @@ export const SettingsPage: React.FC = () => {
   const updateSettings = useSettingsStore((state) => state.updateSettings);
   const scanFolders = useLibraryStore((state) => state.scanFolders);
   const isScanning = useLibraryStore((state) => state.scanProgress.isScanning);
+  const scanError = useLibraryStore((state) => state.scanProgress.error);
   const setLyricProvider = usePlayerStore((state) => state.setLyricProvider);
   const currentTrack = usePlayerStore((state) => state.currentTrack);
   const audioFormat = usePlayerStore((state) => state.audioFormat);
@@ -159,7 +160,10 @@ export const SettingsPage: React.FC = () => {
       if (pendingList.length > 0) {
         const merged = Object.assign({}, ...pendingList) as Partial<typeof settings>;
         pendingPatchesRef.current = {};
-        void useSettingsStore.getState().updateSettings(merged);
+        void useSettingsStore
+          .getState()
+          .updateSettings(merged)
+          .catch((err) => console.warn('Failed to flush pending settings on unmount:', err));
       }
     };
   }, []);
@@ -237,7 +241,9 @@ export const SettingsPage: React.FC = () => {
       if (paths && paths.length > 0) {
         await scanFolders(paths);
         await useSettingsStore.getState().loadSettings();
-        triggerToast();
+        if (!useLibraryStore.getState().scanProgress.error) {
+          triggerToast();
+        }
       }
     } catch (err) {
       console.error('Failed to add music folder:', err);
@@ -254,7 +260,9 @@ export const SettingsPage: React.FC = () => {
       const updated = latestFolders.filter((f) => f !== folderPath);
       await updateSettings({ musicFolders: updated });
       await scanFolders(updated);
-      triggerToast();
+      if (!useLibraryStore.getState().scanProgress.error) {
+        triggerToast();
+      }
     } catch (err) {
       console.error('Failed to remove music folder:', err);
       setPageError(err instanceof Error ? err.message : 'Failed to remove music folder.');
@@ -450,13 +458,13 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {pageError && (
+      {(pageError || scanError) && (
         <div
           role="alert"
           className="bg-[#1F1012] border border-[#FF4D67]/30 px-4 py-3 rounded-xl flex items-center gap-2.5 text-xs text-[#FF4D67]"
         >
           <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{pageError}</span>
+          <span>{pageError || scanError}</span>
         </div>
       )}
 

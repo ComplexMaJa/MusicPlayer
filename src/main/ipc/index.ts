@@ -5,7 +5,10 @@ import path from 'path';
 import {
   getAllTracks,
   getAlbums,
+  getAlbumById,
   getArtists,
+  getArtistById,
+  getAlbumsByArtist,
   getAllPlaylists,
   createPlaylistInDb,
   deletePlaylistInDb,
@@ -549,8 +552,7 @@ export function registerIpcHandlers(): void {
   handle('library:getAlbums', async () => getAlbums());
   handle('library:getAlbumDetail', async (_event, albumId: unknown) => {
     const safeAlbumId = assertNonEmptyString(albumId, 'albumId', 512);
-    const albums = getAlbums();
-    const album = albums.find((a) => a.id === safeAlbumId);
+    const album = getAlbumById(safeAlbumId);
     if (!album) return null;
     const tracks = getTracksByAlbum(album.artist, album.title);
     return { ...album, tracks };
@@ -559,10 +561,9 @@ export function registerIpcHandlers(): void {
   handle('library:getArtists', async () => getArtists());
   handle('library:getArtistDetail', async (_event, artistId: unknown) => {
     const safeArtistId = assertNonEmptyString(artistId, 'artistId', 512);
-    const artists = getArtists();
-    const artist = artists.find((a) => a.id === safeArtistId);
+    const artist = getArtistById(safeArtistId);
     if (!artist) return null;
-    const albums = getAlbums().filter((a) => a.artist === artist.name);
+    const albums = getAlbumsByArtist(artist.name);
     const tracks = getTracksByArtist(artist.name);
     return { artist, albums, tracks };
   });

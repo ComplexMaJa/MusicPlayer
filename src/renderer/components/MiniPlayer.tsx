@@ -68,6 +68,9 @@ export const MiniPlayer: React.FC = () => {
   );
 
   const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const isCurrentFavorite = useLibraryStore((state) =>
+    currentTrack ? Boolean(state.favoriteIdMap[currentTrack.id]) : false
+  );
   const setActiveView = useLibraryStore((state) => state.setActiveView);
   const [artworkError, setArtworkError] = useState(false);
 
@@ -123,17 +126,21 @@ export const MiniPlayer: React.FC = () => {
         </div>
         <button
           type="button"
-          onClick={() => void toggleFavorite(currentTrack.id)}
+          onClick={() => {
+            void toggleFavorite(currentTrack.id).catch((err) => {
+              console.error('Failed to toggle favorite:', err);
+            });
+          }}
           className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav shrink-0 cursor-pointer"
           title="Favorite"
-          aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          aria-label={isCurrentFavorite ? 'Remove from favorites' : 'Add to favorites'}
         >
           <Heart
             className={`w-4 h-4 transition-all duration-200 ${
-              currentTrack.isFavorite ? 'scale-105' : 'group-hover/fav:scale-110'
+              isCurrentFavorite ? 'scale-105' : 'group-hover/fav:scale-110'
             }`}
             style={
-              currentTrack.isFavorite
+              isCurrentFavorite
                 ? { fill: 'var(--accent-color, #FF2E55)', color: 'var(--accent-color, #FF2E55)' }
                 : undefined
             }

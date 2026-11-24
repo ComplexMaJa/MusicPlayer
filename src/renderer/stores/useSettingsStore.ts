@@ -33,7 +33,9 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
 
   updateSettings: async (newSettings: Partial<Settings>) => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     const reqUpdateSeq = ++settingsUpdateSeq;
     try {
       const updated = await api.saveSettings(newSettings);
@@ -42,6 +44,7 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
       }
     } catch (err) {
       console.error('Error saving settings:', err);
+      throw err;
     }
   },
 }));

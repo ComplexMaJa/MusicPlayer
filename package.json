@@ -8,7 +8,7 @@
     "dev:renderer": "vite",
     "dev:main": "esbuild src/main/index.ts src/preload/index.ts --outdir=dist --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs --out-extension:.js=.cjs",
     "dev": "pnpm dev:main && concurrently -k \"pnpm dev:renderer\" \"node -e \\\"const http=require('http');const poll=()=>http.get('http://127.0.0.1:5173',r=>{r.resume();process.exit(0)}).on('error',()=>setTimeout(poll,150));poll();\\\" && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "build:main": "esbuild src/main/index.ts --outfile=dist/main/index.cjs --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs --minify && esbuild src/preload/index.ts --outfile=dist/preload/index.cjs --bundle --platform=node --target=node20 --external:electron --format=cjs --minify",
+    "build:main": "esbuild src/main/index.ts --outfile=dist/main/index.cjs --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs --minify && esbuild src/preload/index.ts --outfile=dist/preload/index.cjs --bundle --platform=node --target=node20 --external:electron --format=cjs --minify && node -e \"require('fs').copyFileSync(require.resolve('sql.js/dist/sql-wasm.wasm'), 'dist/main/sql-wasm.wasm')\"",
     "build:renderer": "vite build",
     "build": "rimraf dist && pnpm build:main && pnpm build:renderer",
     "package": "pnpm typecheck && pnpm build && electron-builder --dir",
@@ -66,7 +66,8 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "node_modules/sql.js/dist/sql-wasm.wasm"
+      "dist/main/sql-wasm.wasm",
+      "**/sql-wasm.wasm"
     ],
     "win": {
       "target": [

@@ -144,11 +144,7 @@ export const TrackRow: React.FC<TrackRowProps> = memo(
     const playTrack = usePlayerStore((state) => state.playTrack);
     const togglePlay = usePlayerStore((state) => state.togglePlay);
     const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
-    const isFavorite = useLibraryStore((s) => {
-      const map = (s as typeof s & { favoriteIdMap?: Record<string, true> }).favoriteIdMap;
-      if (map) return Boolean(map[track.id]);
-      return s.favorites.some((f) => f.id === track.id) || Boolean(track.isFavorite);
-    });
+    const isFavorite = useLibraryStore((state) => Boolean(state.favoriteIdMap[track.id]));
 
     const [showPlaylistMenu, setShowPlaylistMenu] = useState(false);
     const [openMenuUpward, setOpenMenuUpward] = useState(false);

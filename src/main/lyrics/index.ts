@@ -45,6 +45,7 @@ export function parseLrc(lrcText: string): LyricLine[] {
     const textContent = trimmed
       .replace(timeTagRegex, '')
       .replace(inlineTimeTagRegex, '')
+      .replace(/\s+/g, ' ')
       .trim();
 
     for (const match of timeMatches) {

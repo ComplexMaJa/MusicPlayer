@@ -85,6 +85,9 @@ const NowPlayingDrawerContent: React.FC = () => {
   );
 
   const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const isCurrentFavorite = useLibraryStore((state) =>
+    currentTrack ? Boolean(state.favoriteIdMap[currentTrack.id]) : false
+  );
   const reducedMotion = useSettingsStore((state) => state.settings.reducedMotion);
   const [activeTab, setActiveTab] = useState<'artwork' | 'lyrics'>('artwork');
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
@@ -356,17 +359,21 @@ const NowPlayingDrawerContent: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => void toggleFavorite(currentTrack.id)}
+            onClick={() => {
+              void toggleFavorite(currentTrack.id).catch((err) => {
+                console.error('Failed to toggle favorite:', err);
+              });
+            }}
             className="text-[#666666] hover:text-accent p-2 rounded-full hover:bg-[#151515] transition-all duration-200 active:scale-125 shrink-0 group/fav cursor-pointer"
             title="Favorite"
-            aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            aria-label={isCurrentFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
             <Heart
               className={`w-4 h-4 transition-all duration-200 ${
-                currentTrack.isFavorite ? 'scale-105' : 'group-hover/fav:scale-110'
+                isCurrentFavorite ? 'scale-105' : 'group-hover/fav:scale-110'
               }`}
               style={
-                currentTrack.isFavorite
+                isCurrentFavorite
                   ? { fill: 'var(--accent-color, #FF2E55)', color: 'var(--accent-color, #FF2E55)' }
                   : undefined
               }

@@ -153,7 +153,9 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
 
   toggleFavorite: async (trackId: string) => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     try {
       const isFav = await api.toggleFavorite(trackId);
       const currentPlaying = usePlayerStore.getState().currentTrack;
@@ -202,27 +204,35 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       }
     } catch (err) {
       console.error('Error toggling favorite:', err);
+      throw err;
     }
   },
 
   createPlaylist: async (name: string, description?: string) => {
     const api = window.electronAPI;
-    if (!api) return null;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     try {
       const pl = await api.createPlaylist(name, description);
       await get().fetchPlaylists();
       return pl;
     } catch (err) {
       console.error('Error creating playlist:', err);
-      return null;
+      throw err;
     }
   },
 
   deletePlaylist: async (id: string) => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     try {
-      await api.deletePlaylist(id);
+      const deleted = await api.deletePlaylist(id);
+      if (!deleted) {
+        throw new Error('Playlist could not be deleted');
+      }
       if (get().selectedPlaylistId === id) {
         set((state) => ({
           selectedPlaylistId: null,
@@ -232,39 +242,59 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       await get().fetchPlaylists();
     } catch (err) {
       console.error('Error deleting playlist:', err);
+      throw err;
     }
   },
 
   addTrackToPlaylist: async (playlistId: string, trackId: string) => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     try {
-      await api.addTrackToPlaylist(playlistId, trackId);
+      const added = await api.addTrackToPlaylist(playlistId, trackId);
+      if (!added) {
+        throw new Error('Failed to add track to playlist');
+      }
       await get().fetchPlaylists();
     } catch (err) {
       console.error('Error adding track to playlist:', err);
+      throw err;
     }
   },
 
   addTracksToPlaylist: async (playlistId: string, trackIds: string[]) => {
+    if (!trackIds.length) return;
     const api = window.electronAPI;
-    if (!api || !trackIds.length) return;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     try {
-      await api.addTracksToPlaylist(playlistId, trackIds);
+      const added = await api.addTracksToPlaylist(playlistId, trackIds);
+      if (!added) {
+        throw new Error('Failed to add tracks to playlist');
+      }
       await get().fetchPlaylists();
     } catch (err) {
       console.error('Error adding tracks to playlist:', err);
+      throw err;
     }
   },
 
   removeTrackFromPlaylist: async (playlistId: string, trackId: string) => {
     const api = window.electronAPI;
-    if (!api) return;
+    if (!api) {
+      throw new Error('Electron API is unavailable');
+    }
     try {
-      await api.removeTrackFromPlaylist(playlistId, trackId);
+      const removed = await api.removeTrackFromPlaylist(playlistId, trackId);
+      if (!removed) {
+        throw new Error('Failed to remove track from playlist');
+      }
       await get().fetchPlaylists();
     } catch (err) {
       console.error('Error removing track from playlist:', err);
+      throw err;
     }
   },
 }));

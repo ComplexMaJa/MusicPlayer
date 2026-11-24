@@ -143,7 +143,11 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
         const tagStart = match.index ?? 0;
         const tagEnd = tagStart + match[0].length;
         const nextTagStart = i + 1 < tagMatches.length ? (tagMatches[i + 1].index ?? rawText.length) : rawText.length;
-        const segmentText = rawText.slice(tagEnd, nextTagStart);
+        const rawSegmentText = rawText.slice(tagEnd, nextTagStart);
+        const segmentText =
+          words.length > 0 && /\s$/.test(words[words.length - 1].text)
+            ? rawSegmentText.replace(/^\s+/, '')
+            : rawSegmentText;
         if (!segmentText) continue;
 
         const wordStart = parseTimestampToSec(match[1] || match[2]);
@@ -172,7 +176,9 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
           id: idx,
           time: startTime,
           endTime: lineEndTime,
-          text: cleanFullText.trim() || rawText.replace(STRAY_TIME_TAG_REGEX, '').trim(),
+          text:
+            cleanFullText.replace(/\s+/g, ' ').trim() ||
+            rawText.replace(STRAY_TIME_TAG_REGEX, '').replace(/\s+/g, ' ').trim(),
           words,
           hasWordTimestamps: true,
         };
@@ -180,7 +186,7 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
     }
 
     // Strip only stray LRC time tags, preserving legitimate parenthetical vocals like "(yeah)"
-    const cleanText = rawText.replace(STRAY_TIME_TAG_REGEX, '').trim();
+    const cleanText = rawText.replace(STRAY_TIME_TAG_REGEX, '').replace(/\s+/g, ' ').trim();
     const charCount = cleanText.length || 1;
 
     let lineDuration: number;

@@ -383,6 +383,9 @@ const CinemaModeContent: React.FC = () => {
   );
 
   const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const isCurrentFavorite = useLibraryStore((state) =>
+    currentTrack ? Boolean(state.favoriteIdMap[currentTrack.id]) : false
+  );
   const settingsAccentColor = useSettingsStore((state) => state.settings.accentColor);
   const reducedMotion = useSettingsStore((state) => state.settings.reducedMotion);
   const safeSettingsAccent = useMemo(
@@ -760,17 +763,21 @@ const CinemaModeContent: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => void toggleFavorite(currentTrack.id)}
+              onClick={() => {
+                void toggleFavorite(currentTrack.id).catch((err) => {
+                  console.error('Failed to toggle favorite:', err);
+                });
+              }}
               className="p-3 rounded-2xl bg-[#141416]/80 hover:bg-[#1E1E22] border border-[#262626] transition-all duration-150 active:scale-125 cursor-pointer group"
               title="Favorite"
-              aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+              aria-label={isCurrentFavorite ? 'Remove from favorites' : 'Add to favorites'}
             >
               <Heart
                 className={`w-6 h-6 transition-all duration-150 ${
-                  currentTrack.isFavorite ? 'scale-110' : 'group-hover:scale-110 text-[#666666]'
+                  isCurrentFavorite ? 'scale-110' : 'group-hover:scale-110 text-[#666666]'
                 }`}
                 style={
-                  currentTrack.isFavorite
+                  isCurrentFavorite
                     ? { fill: accentColor, color: accentColor }
                     : undefined
                 }
