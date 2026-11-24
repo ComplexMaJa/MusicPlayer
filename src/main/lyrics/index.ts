@@ -3,6 +3,11 @@ import path from 'path';
 import * as musicMetadata from 'music-metadata';
 import { Track, LyricLine, LyricsResult, LyricProviderOption } from '../../shared/types';
 
+const MAX_LOCAL_LRC_BYTES = 512 * 1024;
+const MAX_LRCLIB_RESPONSE_BYTES = 512 * 1024;
+const LRCLIB_TIMEOUT_MS = 3500;
+const LRCLIB_DURATION_TOLERANCE_SECONDS = 15;
+
 /**
  * Parses LRC formatted text into structured, chronologically sorted LyricLine objects.
  */
@@ -17,12 +22,16 @@ export function parseLrc(lrcText: string): LyricLine[] {
   for (const line of lines) {
     const offsetMatch = line.match(/\[offset:\s*([+-]?\d+)\s*\]/i);
     if (offsetMatch) {
-      offsetSeconds = parseInt(offsetMatch[1], 10) / 1000;
+      const parsedOffset = parseInt(offsetMatch[1], 10);
+      if (Number.isFinite(parsedOffset)) {
+        offsetSeconds = parsedOffset / 1000;
+      }
       break;
     }
   }
 
   const timeTagRegex = /\[\s*(\d+):(\d{2})(?:[.:](\d+))?\s*\]/g;
+  const inlineTimeTagRegex = /<\s*\d+:\d{2}(?:[.:]\d+)?\s*>/g;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -32,8 +41,11 @@ export function parseLrc(lrcText: string): LyricLine[] {
     const timeMatches = [...trimmed.matchAll(timeTagRegex)];
     if (timeMatches.length === 0) continue;
 
-    // Remove all time tags to get text content
-    const textContent = trimmed.replace(timeTagRegex, '').trim();
+    // Remove all line and inline enhanced LRC time tags to get text content
+    const textContent = trimmed
+      .replace(timeTagRegex, '')
+      .replace(inlineTimeTagRegex, '')
+      .trim();
 
     for (const match of timeMatches) {
       const minutes = parseInt(match[1], 10);
@@ -42,6 +54,7 @@ export function parseLrc(lrcText: string): LyricLine[] {
       const millis = parseInt(millisRaw.padEnd(3, '0').slice(0, 3), 10);
 
       const totalSeconds = Math.max(0, minutes * 60 + seconds + millis / 1000 + offsetSeconds);
+      if (!Number.isFinite(totalSeconds)) continue;
 
       result.push({
         time: totalSeconds,
@@ -57,16 +70,18 @@ export function parseLrc(lrcText: string): LyricLine[] {
  * Cleans track and artist titles for improved lyrics search matching
  */
 function cleanSongTitle(title: string): string {
-  return title
+  const cleaned = title
     .replace(/\s*[\(\[](?:feat\.?|ft\.?|with|prod\.?|explicit|remaster(?:ed)?|deluxe|bonus|version|edition|official|audio|video|lyrics).*?[\)\]]/gi, '')
     .replace(/\s*-\s*(?:remaster(?:ed)?|deluxe|bonus|version|edition).*$/gi, '')
     .trim();
+  return cleaned || title.trim();
 }
 
 function cleanArtistName(artist: string): string {
-  return artist
+  const cleaned = artist
     .replace(/\s*[\(\[](?:feat\.?|ft\.?|with).*?[\)\]]/gi, '')
     .trim();
+  return cleaned || artist.trim();
 }
 
 interface ProviderData {
@@ -101,13 +116,306 @@ function readOnlineCache(key: string): ProviderData | null | undefined {
 }
 
 function writeOnlineCache(key: string, data: ProviderData | null): void {
-  if (onlineCache.size >= ONLINE_CACHE_LIMIT) {
+  if (onlineCache.has(key)) {
+    onlineCache.delete(key);
+  } else if (onlineCache.size >= ONLINE_CACHE_LIMIT) {
     const oldestKey = onlineCache.keys().next().value;
     if (oldestKey !== undefined) {
       onlineCache.delete(oldestKey);
     }
   }
   onlineCache.set(key, data);
+}
+
+type FetchJsonResult =
+  | { status: 'ok'; data: unknown }
+  | { status: 'not_found' }
+  | { status: 'error' };
+
+async function cancelBodySafely(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // Ignore stream cancellation errors.
+  }
+}
+
+async function fetchJsonWithLimits(
+  url: string,
+  timeoutMs = LRCLIB_TIMEOUT_MS,
+  maxBytes = MAX_LRCLIB_RESPONSE_BYTES
+): Promise<FetchJsonResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'MaJaPlayer/1.0 (https://github.com/ComplexMaJa/MusicPlayer)',
+      },
+      redirect: 'error',
+      signal: controller.signal,
+    });
+
+    if (res.status === 404) {
+      await cancelBodySafely(res);
+      return { status: 'not_found' };
+    }
+
+    if (!res.ok) {
+      await cancelBodySafely(res);
+      return { status: 'error' };
+    }
+
+    const contentLengthHeader = res.headers.get('content-length');
+    if (contentLengthHeader) {
+      const contentLength = Number(contentLengthHeader);
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        await cancelBodySafely(res);
+        return { status: 'error' };
+      }
+    }
+
+    let rawBytes: Buffer;
+    if (res.body && typeof res.body.getReader === 'function') {
+      const reader = res.body.getReader();
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+
+          totalBytes += value.byteLength;
+          if (totalBytes > maxBytes) {
+            await reader.cancel().catch(() => {});
+            return { status: 'error' };
+          }
+          chunks.push(Buffer.from(value));
+        }
+      } catch {
+        await reader.cancel().catch(() => {});
+        return { status: 'error' };
+      }
+
+      rawBytes = Buffer.concat(chunks, totalBytes);
+    } else {
+      const ab = await res.arrayBuffer();
+      if (ab.byteLength > maxBytes) {
+        return { status: 'error' };
+      }
+      rawBytes = Buffer.from(ab);
+    }
+
+    const parsed: unknown = JSON.parse(rawBytes.toString('utf8'));
+    return { status: 'ok', data: parsed };
+  } catch {
+    return { status: 'error' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractOnlineLyrics(raw: unknown): ProviderData | null {
+  if (!isRecord(raw)) return null;
+
+  if (raw.instrumental === true) {
+    return {
+      syncedLyrics: [],
+      plainLyrics: '♪ Instrumental ♪',
+      source: 'online',
+      instrumental: true,
+    };
+  }
+
+  const rawSynced = typeof raw.syncedLyrics === 'string' ? raw.syncedLyrics : '';
+  const rawPlain = typeof raw.plainLyrics === 'string' ? raw.plainLyrics : '';
+
+  if (rawSynced.trim()) {
+    const parsed = parseLrc(rawSynced);
+    if (parsed.length > 0) {
+      return {
+        syncedLyrics: parsed,
+        plainLyrics: rawPlain || rawSynced,
+        source: 'online',
+      };
+    }
+  }
+
+  if (rawPlain.trim()) {
+    return {
+      syncedLyrics: [],
+      plainLyrics: rawPlain,
+      source: 'online',
+    };
+  }
+
+  return null;
+}
+
+function pickBestSearchMatch(items: unknown[], trackDuration: number): ProviderData | null {
+  const candidates: Array<{ provider: ProviderData; durationDiff: number }> = [];
+  const hasTrackDuration = Number.isFinite(trackDuration) && trackDuration > 0;
+
+  for (const item of items) {
+    if (!isRecord(item)) continue;
+    const extracted = extractOnlineLyrics(item);
+    if (!extracted) continue;
+
+    const itemDuration = typeof item.duration === 'number' && Number.isFinite(item.duration)
+      ? item.duration
+      : null;
+
+    if (hasTrackDuration && itemDuration !== null) {
+      const diff = Math.abs(itemDuration - trackDuration);
+      if (diff > LRCLIB_DURATION_TOLERANCE_SECONDS) {
+        continue;
+      }
+      candidates.push({ provider: extracted, durationDiff: diff });
+    } else {
+      candidates.push({
+        provider: extracted,
+        durationDiff: hasTrackDuration ? LRCLIB_DURATION_TOLERANCE_SECONDS : 0,
+      });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const aSynced = a.provider.syncedLyrics.length > 0 ? 1 : 0;
+    const bSynced = b.provider.syncedLyrics.length > 0 ? 1 : 0;
+    if (aSynced !== bSynced) return bSynced - aSynced;
+
+    const aInstr = a.provider.instrumental ? 1 : 0;
+    const bInstr = b.provider.instrumental ? 1 : 0;
+    if (aInstr !== bInstr) return bInstr - aInstr;
+
+    return a.durationDiff - b.durationDiff;
+  });
+
+  return candidates[0].provider;
+}
+
+async function readLocalLrcFile(trackPath: string): Promise<ProviderData | null> {
+  const trackStat = await fs.promises.stat(trackPath).catch(() => null);
+  if (!trackStat || !trackStat.isFile()) return null;
+
+  const dir = path.dirname(trackPath);
+  const baseName = path.basename(trackPath, path.extname(trackPath));
+  const candidates = [
+    path.join(dir, `${baseName}.lrc`),
+    `${trackPath}.lrc`,
+    path.join(dir, `${baseName}.LRC`),
+  ];
+
+  for (const candidate of candidates) {
+    const stat = await fs.promises.stat(candidate).catch(() => null);
+    if (!stat || !stat.isFile()) continue;
+    if (stat.size > MAX_LOCAL_LRC_BYTES) {
+      console.warn(`Skipping oversized LRC file (${stat.size} bytes): ${candidate}`);
+      continue;
+    }
+
+    const content = await fs.promises.readFile(candidate, 'utf8');
+    if (content && content.trim()) {
+      const parsed = parseLrc(content);
+      return {
+        syncedLyrics: parsed,
+        plainLyrics: content,
+        source: 'local',
+      };
+    }
+  }
+
+  return null;
+}
+
+async function readEmbeddedLyrics(trackPath: string): Promise<ProviderData | null> {
+  const trackStat = await fs.promises.stat(trackPath).catch(() => null);
+  if (!trackStat || !trackStat.isFile()) return null;
+
+  const metadata = await musicMetadata.parseFile(trackPath, { skipCovers: true });
+  const lyricsArray = metadata.common.lyrics;
+  if (!Array.isArray(lyricsArray) || lyricsArray.length === 0) {
+    return null;
+  }
+
+  let plainFallback: ProviderData | null = null;
+
+  for (const rawEntry of lyricsArray as unknown[]) {
+    if (!rawEntry) continue;
+
+    if (typeof rawEntry === 'string') {
+      if (rawEntry.trim()) {
+        const parsed = parseLrc(rawEntry);
+        if (parsed.length > 0) {
+          return { syncedLyrics: parsed, plainLyrics: rawEntry, source: 'embedded' };
+        }
+        if (!plainFallback) {
+          plainFallback = { syncedLyrics: [], plainLyrics: rawEntry, source: 'embedded' };
+        }
+      }
+      continue;
+    }
+
+    if (!isRecord(rawEntry)) continue;
+    const entry = rawEntry as { text?: unknown; syncText?: unknown };
+
+    if (Array.isArray(entry.syncText) && entry.syncText.length > 0) {
+      const syncedLines: LyricLine[] = [];
+      for (const syncItem of entry.syncText) {
+        if (
+          isRecord(syncItem) &&
+          typeof syncItem.text === 'string' &&
+          typeof syncItem.timestamp === 'number' &&
+          Number.isFinite(syncItem.timestamp)
+        ) {
+          syncedLines.push({
+            time: Math.max(0, syncItem.timestamp / 1000),
+            text: syncItem.text.trim(),
+          });
+        }
+      }
+      if (syncedLines.length > 0) {
+        syncedLines.sort((a, b) => a.time - b.time);
+        const plainFromSync =
+          (typeof entry.text === 'string' && entry.text.trim()) ||
+          syncedLines.map((l) => l.text).filter(Boolean).join('\n');
+        return {
+          syncedLyrics: syncedLines,
+          plainLyrics: plainFromSync,
+          source: 'embedded',
+        };
+      }
+    }
+
+    if (typeof entry.text === 'string' && entry.text.trim()) {
+      const parsed = parseLrc(entry.text);
+      if (parsed.length > 0) {
+        return {
+          syncedLyrics: parsed,
+          plainLyrics: entry.text,
+          source: 'embedded',
+        };
+      }
+      if (!plainFallback) {
+        plainFallback = {
+          syncedLyrics: [],
+          plainLyrics: entry.text,
+          source: 'embedded',
+        };
+      }
+    }
+  }
+
+  return plainFallback;
 }
 
 /**
@@ -128,54 +436,21 @@ export async function getLyricsForTrack(
   let onlineData: ProviderData | null = null;
 
   // 1. Check local .lrc file
-  try {
-    if (track.path && fs.existsSync(track.path)) {
-      const dir = path.dirname(track.path);
-      const baseName = path.basename(track.path, path.extname(track.path));
-      const candidates = [
-        path.join(dir, `${baseName}.lrc`),
-        `${track.path}.lrc`,
-        path.join(dir, `${baseName}.LRC`),
-      ];
-
-      for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
-          const content = await fs.promises.readFile(candidate, 'utf8');
-          if (content && content.trim()) {
-            const parsed = parseLrc(content);
-            localData = {
-              syncedLyrics: parsed,
-              plainLyrics: content,
-              source: 'local',
-            };
-            break;
-          }
-        }
-      }
+  if (track.path) {
+    try {
+      localData = await readLocalLrcFile(track.path);
+    } catch (err) {
+      console.warn('Error checking local LRC file:', err);
     }
-  } catch (err) {
-    console.warn('Error checking local LRC file:', err);
   }
 
-  // 2. Check embedded audio tags
-  try {
-    if (track.path && fs.existsSync(track.path)) {
-      const metadata = await musicMetadata.parseFile(track.path);
-      const lyricsArray = metadata.common.lyrics;
-      if (lyricsArray && lyricsArray.length > 0) {
-        const raw = typeof lyricsArray[0] === 'string' ? lyricsArray[0] : (lyricsArray[0] as any).text;
-        if (raw && typeof raw === 'string' && raw.trim()) {
-          const parsed = parseLrc(raw);
-          embeddedData = {
-            syncedLyrics: parsed,
-            plainLyrics: raw,
-            source: 'embedded',
-          };
-        }
-      }
+  // 2. Check embedded audio tags (skip cover decoding)
+  if (track.path) {
+    try {
+      embeddedData = await readEmbeddedLyrics(track.path);
+    } catch (err) {
+      console.warn('Error checking embedded lyrics:', err);
     }
-  } catch (err) {
-    console.warn('Error checking embedded lyrics:', err);
   }
 
   // 3. Check online LRCLIB only when the requested provider needs it and no
@@ -193,121 +468,77 @@ export async function getLyricsForTrack(
     if (cachedOnline !== undefined) {
       onlineData = cachedOnline;
     } else {
+      let hadTransientError = false;
+
       try {
         const cleanTitle = cleanSongTitle(track.title);
         const cleanArtist = cleanArtistName(track.artist);
 
-      const fetchOptions = {
-        headers: {
-          'User-Agent': 'MaJaPlayer/1.0 (https://github.com/ComplexMaJa/MusicPlayer)',
-        },
-      };
-
-      const fetchWithTimeout = async (url: string, timeoutMs = 3500) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
-        try {
-          const res = await fetch(url, { ...fetchOptions, signal: controller.signal });
-          clearTimeout(timer);
-          return res;
-        } catch (e) {
-          clearTimeout(timer);
-          return null;
-        }
-      };
-
-      // 3A. Exact /api/get query
-      const params1 = new URLSearchParams({
-        track_name: track.title,
-        artist_name: track.artist,
-      });
-      if (track.album && track.album !== 'Unknown Album') {
-        params1.append('album_name', track.album);
-      }
-      if (track.duration && track.duration > 0) {
-        params1.append('duration', `${Math.round(track.duration)}`);
-      }
-
-      let res = await fetchWithTimeout(`https://lrclib.net/api/get?${params1.toString()}`);
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data) {
-          if (data.instrumental) {
-            onlineData = {
-              syncedLyrics: [],
-              plainLyrics: '♪ Instrumental ♪',
-              source: 'online',
-              instrumental: true,
-            };
-          } else if (data.syncedLyrics) {
-            const parsed = parseLrc(data.syncedLyrics);
-            onlineData = {
-              syncedLyrics: parsed,
-              plainLyrics: data.plainLyrics || data.syncedLyrics,
-              source: 'online',
-            };
-          } else if (data.plainLyrics) {
-            onlineData = {
-              syncedLyrics: [],
-              plainLyrics: data.plainLyrics,
-              source: 'online',
-            };
-          }
-        }
-      }
-
-      // 3B. Cleaned /api/get query fallback
-      if (!onlineData?.syncedLyrics?.length && (cleanTitle !== track.title || cleanArtist !== track.artist)) {
-        const params2 = new URLSearchParams({
-          track_name: cleanTitle,
-          artist_name: cleanArtist,
+        // 3A. Exact /api/get query
+        const params1 = new URLSearchParams({
+          track_name: track.title,
+          artist_name: track.artist,
         });
-        res = await fetchWithTimeout(`https://lrclib.net/api/get?${params2.toString()}`);
-        if (res && res.ok) {
-          const data = await res.json();
-          if (data?.syncedLyrics) {
-            const parsed = parseLrc(data.syncedLyrics);
-            if (parsed.length > 0) {
-              onlineData = {
-                syncedLyrics: parsed,
-                plainLyrics: data.plainLyrics || data.syncedLyrics,
-                source: 'online',
-              };
-            }
-          }
+        if (track.album && track.album !== 'Unknown Album') {
+          params1.append('album_name', track.album);
         }
-      }
+        if (track.duration && track.duration > 0) {
+          params1.append('duration', `${Math.round(track.duration)}`);
+        }
 
-      // 3C. Search endpoint fallback
-      if (!onlineData?.syncedLyrics?.length) {
-        const searchParams = new URLSearchParams({
-          track_name: cleanTitle,
-          artist_name: cleanArtist,
-        });
-        const searchRes = await fetchWithTimeout(`https://lrclib.net/api/search?${searchParams.toString()}`);
-        if (searchRes && searchRes.ok) {
-          const searchList = await searchRes.json();
-          if (Array.isArray(searchList)) {
-            const matchWithSynced = searchList.find(
-              (item) => item.syncedLyrics && typeof item.syncedLyrics === 'string'
-            );
-            if (matchWithSynced) {
-              const parsed = parseLrc(matchWithSynced.syncedLyrics);
-              if (parsed.length > 0) {
-                onlineData = {
-                  syncedLyrics: parsed,
-                  plainLyrics: matchWithSynced.plainLyrics || matchWithSynced.syncedLyrics,
-                  source: 'online',
-                };
-              }
+        const res1 = await fetchJsonWithLimits(`https://lrclib.net/api/get?${params1.toString()}`);
+        if (res1.status === 'ok') {
+          onlineData = extractOnlineLyrics(res1.data);
+        } else if (res1.status === 'error') {
+          hadTransientError = true;
+        }
+
+        // 3B. Cleaned /api/get query fallback
+        if (
+          !onlineData?.syncedLyrics?.length &&
+          (cleanTitle !== track.title || cleanArtist !== track.artist)
+        ) {
+          const params2 = new URLSearchParams({
+            track_name: cleanTitle,
+            artist_name: cleanArtist,
+          });
+          const res2 = await fetchJsonWithLimits(`https://lrclib.net/api/get?${params2.toString()}`);
+          if (res2.status === 'ok') {
+            const candidate = extractOnlineLyrics(res2.data);
+            if (candidate && (candidate.syncedLyrics.length > 0 || !onlineData)) {
+              onlineData = candidate;
             }
+          } else if (res2.status === 'error') {
+            hadTransientError = true;
           }
         }
-      }
+
+        // 3C. Search endpoint fallback
+        if (!onlineData?.syncedLyrics?.length) {
+          const searchParams = new URLSearchParams({
+            track_name: cleanTitle,
+            artist_name: cleanArtist,
+          });
+          const searchRes = await fetchJsonWithLimits(
+            `https://lrclib.net/api/search?${searchParams.toString()}`
+          );
+          if (searchRes.status === 'ok' && Array.isArray(searchRes.data)) {
+            const candidate = pickBestSearchMatch(searchRes.data, track.duration || 0);
+            if (candidate && (candidate.syncedLyrics.length > 0 || !onlineData)) {
+              onlineData = candidate;
+            }
+          } else if (searchRes.status === 'error') {
+            hadTransientError = true;
+          }
+        }
       } catch (err) {
+        hadTransientError = true;
         console.warn('LRCLIB online fetch error:', err);
       }
-      writeOnlineCache(cacheKey, onlineData);
+
+      if (onlineData !== null || !hadTransientError) {
+        writeOnlineCache(cacheKey, onlineData);
+      }
     }
   }
 
@@ -317,17 +548,16 @@ export async function getLyricsForTrack(
   if (embeddedData) availableSources.push('embedded');
   if (onlineData) availableSources.push('online');
 
-  // Select provider based on preference
+  // Select provider based on explicit preference or auto priority
   let chosen: ProviderData | null = null;
 
-  if (preferredProvider === 'local' && localData) {
+  if (preferredProvider === 'local') {
     chosen = localData;
-  } else if (preferredProvider === 'embedded' && embeddedData) {
+  } else if (preferredProvider === 'embedded') {
     chosen = embeddedData;
-  } else if (preferredProvider === 'online' && onlineData) {
+  } else if (preferredProvider === 'online') {
     chosen = onlineData;
   } else {
-    // Auto resolution: prefer timestamped synced lyrics first
     if (localData?.syncedLyrics?.length) {
       chosen = localData;
     } else if (embeddedData?.syncedLyrics?.length) {

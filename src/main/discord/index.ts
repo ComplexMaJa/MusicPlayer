@@ -4,27 +4,27 @@ import { Track } from '../../shared/types';
 export const DEFAULT_DISCORD_CLIENT_ID = '463097721130188830';
 const DEFUNCT_DISCORD_CLIENT_ID = '1223948332155703357';
 
-let currentClientId = DEFAULT_DISCORD_CLIENT_ID;
-let ipcSocket: net.Socket | null = null;
-let isConnected = false;
-let isHandshakeComplete = false;
-let reconnectTimer: NodeJS.Timeout | null = null;
-let lastSentTime = 0;
-let pendingUpdateTimer: NodeJS.Timeout | null = null;
-let receiveBuffer = Buffer.alloc(0);
-
 const MAX_RPC_PACKET_SIZE = 8 * 1024 * 1024;
+const MAX_RECEIVE_BUFFER_SIZE = MAX_RPC_PACKET_SIZE + 8;
+const DISCONNECT_FLUSH_GRACE_MS = 150;
+const RPC_OP_HANDSHAKE = 0;
+const RPC_OP_FRAME = 1;
+const RPC_OP_CLOSE = 2;
+const RPC_OP_PING = 3;
+const RPC_OP_PONG = 4;
 
-let lastState: {
+interface LastPresenceState {
   track: Track | null;
   isPlaying: boolean;
   currentTime: number;
   showTrack: boolean;
   showElapsed: boolean;
-  largeImage?: string;
-  largeImageText?: string;
-  activityType?: 'listening' | 'playing';
-} = {
+  largeImage: string;
+  largeImageText: string;
+  activityType: 'listening' | 'playing';
+}
+
+const DEFAULT_LAST_STATE: LastPresenceState = {
   track: null,
   isPlaying: false,
   currentTime: 0,
@@ -35,6 +35,19 @@ let lastState: {
   activityType: 'listening',
 };
 
+let currentClientId = DEFAULT_DISCORD_CLIENT_ID;
+let ipcSocket: net.Socket | null = null;
+let isEnabled = false;
+let isConnected = false;
+let isHandshakeComplete = false;
+let connectionGeneration = 0;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let lastSentTime = 0;
+let pendingUpdateTimer: NodeJS.Timeout | null = null;
+let receiveBuffer: Buffer = Buffer.alloc(0);
+
+let lastState: LastPresenceState = { ...DEFAULT_LAST_STATE };
+
 function getPipePath(id: number): string {
   if (process.platform === 'win32') {
     return `\\\\.\\pipe\\discord-ipc-${id}`;
@@ -44,25 +57,16 @@ function getPipePath(id: number): string {
   return `${tempDir.replace(/\/$/, '')}/discord-ipc-${id}`;
 }
 
-export function initDiscordRPC(clientId?: string): void {
-  disconnect();
-  if (clientId && clientId !== DEFUNCT_DISCORD_CLIENT_ID) {
-    currentClientId = clientId;
-  } else {
-    currentClientId = DEFAULT_DISCORD_CLIENT_ID;
-  }
-  connectToDiscord(0);
+function clampRpcText(value: string, fallback: string, maxChars = 128, minChars = 2): string {
+  const trimmed = value.trim();
+  const base = trimmed.length > 0 ? trimmed : fallback;
+  const padded = base.length < minChars ? base.padEnd(minChars, ' ') : base;
+  const chars = Array.from(padded);
+  if (chars.length <= maxChars) return padded;
+  return chars.slice(0, maxChars).join('');
 }
 
-export function setDiscordClientId(clientId: string): void {
-  const targetId = (!clientId || clientId === DEFUNCT_DISCORD_CLIENT_ID) ? DEFAULT_DISCORD_CLIENT_ID : clientId;
-  if (targetId === currentClientId && isConnected) return;
-  currentClientId = targetId;
-  disconnect();
-  connectToDiscord(0);
-}
-
-export function disconnect(): void {
+function clearTimers(): void {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
@@ -71,25 +75,119 @@ export function disconnect(): void {
     clearTimeout(pendingUpdateTimer);
     pendingUpdateTimer = null;
   }
-  if (ipcSocket) {
-    ipcSocket.removeAllListeners();
-    ipcSocket.destroy();
+}
+
+function cleanupSocket(socket: net.Socket, allowGracefulFlush = false): void {
+  socket.removeAllListeners();
+  // Prevent unhandled EventEmitter 'error' crashes if closing an active pipe fails asynchronously.
+  socket.on('error', () => {
+    if (!socket.destroyed) {
+      socket.destroy();
+    }
+  });
+
+  if (ipcSocket === socket) {
     ipcSocket = null;
+    isConnected = false;
+    isHandshakeComplete = false;
+    receiveBuffer = Buffer.alloc(0);
   }
+
+  if (allowGracefulFlush && socket.writable && !socket.destroyed) {
+    try {
+      socket.end(() => {
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
+      });
+      const forceDestroyTimer = setTimeout(() => {
+        if (!socket.destroyed) {
+          socket.destroy();
+        }
+      }, DISCONNECT_FLUSH_GRACE_MS);
+      forceDestroyTimer.unref();
+      return;
+    } catch {
+      // Fall back to immediate destroy.
+    }
+  }
+
+  if (!socket.destroyed) {
+    socket.destroy();
+  }
+}
+
+function scheduleReconnect(pipeId: number, delayMs: number, generation: number): void {
+  if (!isEnabled || generation !== connectionGeneration) return;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectToDiscord(pipeId, generation);
+  }, delayMs);
+}
+
+export function initDiscordRPC(clientId?: string): void {
+  disconnect();
+  if (clientId && clientId !== DEFUNCT_DISCORD_CLIENT_ID) {
+    currentClientId = clientId;
+  } else {
+    currentClientId = DEFAULT_DISCORD_CLIENT_ID;
+  }
+  isEnabled = true;
+  connectToDiscord(0, connectionGeneration);
+}
+
+export function setDiscordClientId(clientId: string): void {
+  const targetId =
+    !clientId || clientId === DEFUNCT_DISCORD_CLIENT_ID ? DEFAULT_DISCORD_CLIENT_ID : clientId;
+  if (targetId === currentClientId && isConnected && isEnabled) return;
+  currentClientId = targetId;
+  disconnect();
+  isEnabled = true;
+  connectToDiscord(0, connectionGeneration);
+}
+
+export function disconnect(): void {
+  isEnabled = false;
+  connectionGeneration++;
+  clearTimers();
+
+  const socket = ipcSocket;
+  const shouldFlushPendingWrite = isConnected && isHandshakeComplete;
+  ipcSocket = null;
   isConnected = false;
   isHandshakeComplete = false;
   receiveBuffer = Buffer.alloc(0);
+
+  if (socket) {
+    cleanupSocket(socket, shouldFlushPendingWrite);
+  }
 }
 
-function connectToDiscord(pipeId: number): void {
-  if (isConnected || pipeId > 9) {
-    if (!isConnected && pipeId > 9) {
-      // Re-scan from pipe 0 after a cooldown
-      reconnectTimer = setTimeout(() => {
-        connectToDiscord(0);
-      }, 5000);
-    }
+function connectToDiscord(pipeId: number, generation = connectionGeneration): void {
+  if (!isEnabled || generation !== connectionGeneration) {
     return;
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  if (isConnected) {
+    return;
+  }
+
+  if (pipeId > 9) {
+    // Re-scan from pipe 0 after a cooldown
+    scheduleReconnect(0, 5000, generation);
+    return;
+  }
+
+  if (ipcSocket) {
+    cleanupSocket(ipcSocket);
   }
 
   const pipePath = getPipePath(pipeId);
@@ -97,6 +195,10 @@ function connectToDiscord(pipeId: number): void {
   try {
     let connectionFailed = false;
     const socket = net.connect(pipePath, () => {
+      if (!isEnabled || generation !== connectionGeneration || ipcSocket !== socket) {
+        cleanupSocket(socket);
+        return;
+      }
       isConnected = true;
       receiveBuffer = Buffer.alloc(0);
       sendHandshake();
@@ -104,49 +206,58 @@ function connectToDiscord(pipeId: number): void {
     ipcSocket = socket;
 
     socket.on('data', (data: Buffer | string) => {
+      if (!isEnabled || generation !== connectionGeneration || ipcSocket !== socket) {
+        return;
+      }
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-      receiveBuffer = Buffer.concat([receiveBuffer, buf]);
-      processIncomingPackets();
+      if (receiveBuffer.length + buf.length > MAX_RECEIVE_BUFFER_SIZE) {
+        console.warn('Discord RPC receive buffer limit exceeded; resetting connection.');
+        connectionFailed = true;
+        cleanupSocket(socket);
+        scheduleReconnect(0, 4000, generation);
+        return;
+      }
+      receiveBuffer = receiveBuffer.length === 0 ? buf : Buffer.concat([receiveBuffer, buf]);
+      processIncomingPackets(socket, generation);
     });
 
     socket.on('error', () => {
       connectionFailed = true;
       cleanupSocket(socket);
-      reconnectTimer = setTimeout(() => connectToDiscord(pipeId + 1), 250);
+      if (isEnabled && generation === connectionGeneration) {
+        scheduleReconnect(pipeId + 1, 250, generation);
+      }
     });
 
     socket.on('close', () => {
       if (connectionFailed) return;
-      disconnect();
-      reconnectTimer = setTimeout(() => connectToDiscord(0), 4000);
+      cleanupSocket(socket);
+      if (isEnabled && generation === connectionGeneration) {
+        scheduleReconnect(0, 4000, generation);
+      }
     });
-  } catch (err) {
+  } catch {
     if (ipcSocket) {
       cleanupSocket(ipcSocket);
     }
-    reconnectTimer = setTimeout(() => connectToDiscord(pipeId + 1), 250);
-  }
-}
-
-function cleanupSocket(socket: net.Socket): void {
-  socket.removeAllListeners();
-  socket.destroy();
-  if (ipcSocket === socket) {
-    ipcSocket = null;
-    isConnected = false;
-    isHandshakeComplete = false;
-    receiveBuffer = Buffer.alloc(0);
+    if (isEnabled && generation === connectionGeneration) {
+      scheduleReconnect(pipeId + 1, 250, generation);
+    }
   }
 }
 
 function sendPacket(op: number, data: unknown): void {
-  if (!ipcSocket || !isConnected) return;
+  if (!ipcSocket || !isConnected || ipcSocket.destroyed || !ipcSocket.writable) return;
   try {
     const payload = JSON.stringify(data);
     const len = Buffer.byteLength(payload);
-    const buf = Buffer.alloc(8 + len);
-    buf.writeInt32LE(op, 0);
-    buf.writeInt32LE(len, 4);
+    if (len + 8 > MAX_RPC_PACKET_SIZE) {
+      console.warn(`Discord RPC outbound packet too large (${len} bytes); dropping`);
+      return;
+    }
+    const buf = Buffer.allocUnsafe(8 + len);
+    buf.writeUInt32LE(op >>> 0, 0);
+    buf.writeUInt32LE(len >>> 0, 4);
     buf.write(payload, 8, len, 'utf8');
     ipcSocket.write(buf);
   } catch (err) {
@@ -155,20 +266,21 @@ function sendPacket(op: number, data: unknown): void {
 }
 
 function sendHandshake(): void {
-  sendPacket(0, {
+  sendPacket(RPC_OP_HANDSHAKE, {
     v: 1,
     client_id: currentClientId,
   });
 }
 
-function processIncomingPackets(): void {
+function processIncomingPackets(socket: net.Socket, generation: number): void {
   while (receiveBuffer.length >= 8) {
-    const op = receiveBuffer.readInt32LE(0);
-    const len = receiveBuffer.readInt32LE(4);
+    const op = receiveBuffer.readUInt32LE(0);
+    const len = receiveBuffer.readUInt32LE(4);
 
-    if (len < 0 || len > MAX_RPC_PACKET_SIZE) {
+    if (len > MAX_RPC_PACKET_SIZE) {
       console.warn(`Discord RPC sent an invalid packet length: ${len}`);
-      disconnect();
+      cleanupSocket(socket);
+      scheduleReconnect(0, 4000, generation);
       return;
     }
 
@@ -177,7 +289,16 @@ function processIncomingPackets(): void {
     }
 
     const payload = receiveBuffer.subarray(8, 8 + len);
-    receiveBuffer = receiveBuffer.subarray(8 + len);
+    const remaining = receiveBuffer.length - (8 + len);
+    receiveBuffer =
+      remaining === 0 ? Buffer.alloc(0) : Buffer.from(receiveBuffer.subarray(8 + len));
+
+    if (op === RPC_OP_CLOSE) {
+      cleanupSocket(socket);
+      scheduleReconnect(0, 4000, generation);
+      return;
+    }
+
     handleIncomingPacket(op, payload);
   }
 }
@@ -185,7 +306,7 @@ function processIncomingPackets(): void {
 function handleIncomingPacket(op: number, payloadBuffer: Buffer): void {
   // Discord sends PING frames that must be answered with a PONG carrying the
   // same payload, even before the READY handshake completes.
-  if (op === 3) {
+  if (op === RPC_OP_PING) {
     let payload: unknown = {};
     if (payloadBuffer.length > 0) {
       try {
@@ -194,24 +315,26 @@ function handleIncomingPacket(op: number, payloadBuffer: Buffer): void {
         // Keep an empty object for malformed PING payloads.
       }
     }
-    sendPacket(4, payload);
+    sendPacket(RPC_OP_PONG, payload);
     return;
   }
 
-  if (op !== 1) {
+  if (op !== RPC_OP_FRAME) {
     return;
   }
 
   try {
-    const payload = JSON.parse(payloadBuffer.toString('utf8'));
-
-    if (payload.cmd === 'DISPATCH' && payload.evt === 'READY') {
-      isHandshakeComplete = true;
-      if (lastState.track && lastState.isPlaying) {
-        dispatchPresence();
+    const payload: unknown = JSON.parse(payloadBuffer.toString('utf8'));
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const record = payload as Record<string, unknown>;
+      if (record.cmd === 'DISPATCH' && record.evt === 'READY') {
+        isHandshakeComplete = true;
+        if (lastState.track && lastState.isPlaying) {
+          dispatchPresence();
+        }
       }
     }
-  } catch (err) {
+  } catch {
     // Ignore malformed application frames.
   }
 }
@@ -220,11 +343,11 @@ export function formatTrackAudioSpecs(track: Track): string {
   const codec = (track.codec || 'AUDIO').toUpperCase();
   const parts: string[] = [codec];
 
-  if (track.bitDepth) {
+  if (track.bitDepth && Number.isFinite(track.bitDepth)) {
     parts.push(`${track.bitDepth}bit`);
   }
 
-  if (track.sampleRate) {
+  if (track.sampleRate && Number.isFinite(track.sampleRate)) {
     const khz =
       track.sampleRate >= 1000
         ? (track.sampleRate / 1000) % 1 === 0
@@ -232,16 +355,15 @@ export function formatTrackAudioSpecs(track: Track): string {
           : `${(track.sampleRate / 1000).toFixed(1)}kHz`
         : `${track.sampleRate}Hz`;
     parts.push(khz);
-  } else if (track.bitrate) {
-    const kbps = track.bitrate > 1000 ? Math.round(track.bitrate / 1000) : track.bitrate;
-    parts.push(`${kbps}kbps`);
+  } else if (track.bitrate && Number.isFinite(track.bitrate) && track.bitrate > 0) {
+    parts.push(`${Math.round(track.bitrate)}kbps`);
   }
 
   return parts.join(' • ');
 }
 
 function dispatchPresence(): void {
-  if (!isConnected || !isHandshakeComplete || !ipcSocket) return;
+  if (!isEnabled || !isConnected || !isHandshakeComplete || !ipcSocket) return;
 
   const {
     track,
@@ -255,7 +377,7 @@ function dispatchPresence(): void {
   } = lastState;
 
   if (!track || !isPlaying) {
-    sendPacket(1, {
+    sendPacket(RPC_OP_FRAME, {
       cmd: 'SET_ACTIVITY',
       args: {
         pid: process.pid,
@@ -266,11 +388,13 @@ function dispatchPresence(): void {
     return;
   }
 
-  const startTimestamp = Math.floor(Date.now() - Math.max(0, currentTime) * 1000);
+  const safeCurrentTime =
+    Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0;
+  const startTimestamp = Math.floor(Date.now() - safeCurrentTime * 1000);
+  const safeDuration =
+    track.duration && Number.isFinite(track.duration) && track.duration > 0 ? track.duration : 0;
   const endTimestamp =
-    track.duration && track.duration > 0
-      ? Math.floor(startTimestamp + track.duration * 1000)
-      : undefined;
+    safeDuration > 0 ? Math.floor(startTimestamp + safeDuration * 1000) : undefined;
 
   const artistText = track.artist ? track.artist : 'Unknown Artist';
   const albumText = track.album ? ` • ${track.album}` : '';
@@ -283,22 +407,41 @@ function dispatchPresence(): void {
       ? largeImageText.trim()
       : audioSpecs;
 
-  const activity: any = {
-    type: activityType === 'playing' ? 0 : 2,
-    details: showTrack ? (track.title || 'Playing Audio') : 'Listening to Music',
-    state: showTrack ? `${artistText}${albumText}` : audioSpecs,
+  const activity: {
+    type: number;
+    details: string;
+    state: string;
     assets: {
-      large_text: resolvedHover,
+      large_text: string;
+      small_text: string;
+      large_image?: string;
+    };
+    timestamps?: {
+      start: number;
+      end?: number;
+    };
+  } = {
+    type: activityType === 'playing' ? 0 : 2,
+    details: clampRpcText(
+      showTrack ? track.title || 'Playing Audio' : 'Listening to Music',
+      'Playing Audio'
+    ),
+    state: clampRpcText(
+      showTrack ? `${artistText}${albumText}` : audioSpecs,
+      'Unknown Artist'
+    ),
+    assets: {
+      large_text: clampRpcText(resolvedHover, 'MaJa Player'),
       small_text: isPlaying ? 'Playing' : 'Paused',
     },
   };
 
   if (largeImage && largeImage.trim() !== '') {
-    activity.assets.large_image = largeImage.trim();
+    activity.assets.large_image = clampRpcText(largeImage, 'logo', 256, 1);
   }
 
-  if (showElapsed) {
-    if (endTimestamp) {
+  if (showElapsed && Number.isFinite(startTimestamp)) {
+    if (endTimestamp !== undefined && Number.isFinite(endTimestamp)) {
       activity.timestamps = {
         start: startTimestamp,
         end: endTimestamp,
@@ -310,7 +453,7 @@ function dispatchPresence(): void {
     }
   }
 
-  sendPacket(1, {
+  sendPacket(RPC_OP_FRAME, {
     cmd: 'SET_ACTIVITY',
     args: {
       pid: process.pid,
@@ -334,12 +477,13 @@ export function updatePresence(
 ): void {
   const isTrackChanged = lastState.track?.id !== track?.id;
   const isPlayStateChanged = lastState.isPlaying !== isPlaying;
-  const isTimeDiscrepancy = Math.abs(lastState.currentTime - currentTime) > 3;
+  const safeCurrentTime = Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0;
+  const isTimeDiscrepancy = Math.abs(lastState.currentTime - safeCurrentTime) > 3;
 
   lastState = {
     track,
     isPlaying,
-    currentTime,
+    currentTime: safeCurrentTime,
     showTrack,
     showElapsed,
     largeImage: largeImage ?? lastState.largeImage,
@@ -347,7 +491,7 @@ export function updatePresence(
     activityType: activityType ?? lastState.activityType,
   };
 
-  if (!isConnected || !isHandshakeComplete || !ipcSocket) return;
+  if (!isEnabled || !isConnected || !isHandshakeComplete || !ipcSocket) return;
 
   // If major state change (track change, play/pause, seek > 3s), send immediately
   const now = Date.now();
@@ -370,11 +514,10 @@ export function updatePresence(
 
 export function clearPresence(): void {
   lastState = {
-    track: null,
-    isPlaying: false,
-    currentTime: 0,
-    showTrack: true,
-    showElapsed: true,
+    ...DEFAULT_LAST_STATE,
+    largeImage: lastState.largeImage,
+    largeImageText: lastState.largeImageText,
+    activityType: lastState.activityType,
   };
 
   if (pendingUpdateTimer) {
@@ -382,9 +525,9 @@ export function clearPresence(): void {
     pendingUpdateTimer = null;
   }
 
-  if (!isConnected || !isHandshakeComplete || !ipcSocket) return;
+  if (!isEnabled || !isConnected || !isHandshakeComplete || !ipcSocket) return;
 
-  sendPacket(1, {
+  sendPacket(RPC_OP_FRAME, {
     cmd: 'SET_ACTIVITY',
     args: {
       pid: process.pid,
