@@ -7,8 +7,8 @@ const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
   "script-src-attr 'none'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
   "img-src 'self' data: blob: https: maja-artwork:",
   "media-src 'self' blob: maja-audio:",
   "connect-src 'self'",
@@ -22,7 +22,7 @@ const DEV_CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY
   .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
   .replace(
     "connect-src 'self'",
-    "connect-src 'self' ws://localhost:5173 http://localhost:5173"
+    "connect-src 'self' ws://localhost:5173 http://localhost:5173 ws://127.0.0.1:5173 http://127.0.0.1:5173"
   );
 
 function injectCspMeta(): Plugin {

@@ -2,20 +2,19 @@ import * as musicMetadata from 'music-metadata';
 import path from 'path';
 import fs from 'fs';
 import { Readable } from 'stream';
-import { protocol, net, app } from 'electron';
+import { protocol, net } from 'electron';
 import { pathToFileURL } from 'url';
 import { AudioFormatInfo } from '../../shared/types';
 import { SUPPORTED_EXTENSIONS } from '../../shared/constants';
 import { isTrackPathKnown } from '../database';
 import { ensureArtworkDirExists } from '../library';
+import { normalizePathForComparison, normalizePlatformPath } from '../security';
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif']);
-const approvedWallpaperPaths = new Set<string>();
+const MAX_APPROVED_WALLPAPERS = 64;
 
-function normalizePathForComparison(filePath: string): string {
-  const resolved = path.resolve(filePath);
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
-}
+const approvedWallpaperPaths = new Set<string>();
+let activeWallpaperPath: string | null = null;
 
 function extractWallpaperPath(url: unknown): string | null {
   if (typeof url !== 'string' || !url.startsWith('maja-artwork://load')) return null;
@@ -25,65 +24,73 @@ function extractWallpaperPath(url: unknown): string | null {
     if (parsed.protocol !== 'maja-artwork:' || parsed.hostname !== 'load') return null;
 
     const rawPath = parsed.searchParams.get('path');
-    if (!rawPath) return null;
+    if (!rawPath || rawPath.includes('\0') || !path.isAbsolute(rawPath)) return null;
 
     // URLSearchParams already percent-decodes the value.
-    return path.resolve(rawPath);
-  } catch (_) {
+    return normalizePlatformPath(rawPath);
+  } catch {
     return null;
   }
 }
 
 /**
+ * Tracks the currently persisted wallpaper path in memory so protocol requests
+ * do not synchronously read and parse settings.json on every image load.
+ */
+export function setActiveWallpaperUrl(url: string): void {
+  const extracted = extractWallpaperPath(url);
+  activeWallpaperPath = extracted ? normalizePathForComparison(extracted) : null;
+}
+
+/**
  * Records a wallpaper that the user picked through the native file dialog.
- * Only paths registered here (or an already persisted, unchanged value) may be
- * written to settings, which prevents the renderer from pointing the privileged
- * artwork protocol at arbitrary files.
+ * Only paths registered here (or the active persisted wallpaper) may be
+ * loaded by the privileged artwork protocol or written to settings.
  */
 export function rememberSelectedWallpaper(filePath: string): string | null {
   try {
-    const resolved = path.resolve(filePath);
-    if (!isImagePath(resolved) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    if (!filePath || filePath.includes('\0')) return null;
+    const resolved = normalizePlatformPath(filePath);
+    if (!isImagePath(resolved) || !fs.statSync(resolved).isFile()) {
       return null;
     }
 
-    approvedWallpaperPaths.add(normalizePathForComparison(resolved));
+    const key = normalizePathForComparison(resolved);
+    if (approvedWallpaperPaths.size >= MAX_APPROVED_WALLPAPERS) {
+      const oldest = approvedWallpaperPaths.values().next().value;
+      if (oldest !== undefined) approvedWallpaperPaths.delete(oldest);
+    }
+    approvedWallpaperPaths.add(key);
     return `maja-artwork://load?path=${encodeURIComponent(resolved)}`;
-  } catch (_) {
+  } catch {
     return null;
   }
 }
 
 export function isAllowedWallpaperUrl(value: unknown): boolean {
   if (value === '' || value === undefined || value === null) return true;
-  if (typeof value !== 'string') return false;
+  if (typeof value !== 'string' || value.includes('\0')) return false;
 
   let parsed: URL;
   try {
     parsed = new URL(value);
-  } catch (_) {
+  } catch {
     return false;
   }
 
-  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return true;
+  // Only HTTPS remote URLs are allowed (matches CSP img-src).
+  if (parsed.protocol === 'https:') return true;
   if (parsed.protocol !== 'maja-artwork:' || parsed.hostname !== 'load') return false;
 
-  try {
-    const approvedPath = extractWallpaperPath(value);
-    return approvedPath !== null && approvedWallpaperPaths.has(normalizePathForComparison(approvedPath));
-  } catch (_) {
-    return false;
-  }
+  const wallpaperPath = extractWallpaperPath(value);
+  if (!wallpaperPath) return false;
+  const key = normalizePathForComparison(wallpaperPath);
+  return approvedWallpaperPaths.has(key) || activeWallpaperPath === key;
 }
 
-function getAllowedWallpaperPath(): string | null {
-  try {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    if (!fs.existsSync(settingsPath)) return null;
-    const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    return extractWallpaperPath(data?.customBackgroundUrl);
-  } catch (_) {}
-  return null;
+function isWallpaperPathApproved(filePath: string): boolean {
+  const key = normalizePathForComparison(filePath);
+  return activeWallpaperPath === key || approvedWallpaperPaths.has(key);
 }
 
 function isPathInside(parent: string, child: string): boolean {
@@ -105,30 +112,64 @@ type ParsedRange =
   | { kind: 'unsatisfiable' };
 
 function parseRangeHeader(rangeHeader: string, fileSize: number): ParsedRange {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim().replace(/\s+/g, ''));
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
   // RFC 9110 §14.1.2: syntactically invalid Range headers must be ignored.
   if (!match) return { kind: 'none' };
 
   const [, rawStart, rawEnd] = match;
   if (!rawStart && !rawEnd) return { kind: 'none' };
 
-  let start: number;
-  let end: number;
+  const sizeBig = BigInt(fileSize);
 
   if (!rawStart) {
-    const suffixLength = Number(rawEnd);
-    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return { kind: 'none' };
-    start = Math.max(0, fileSize - suffixLength);
-    end = fileSize - 1;
-  } else {
-    start = Number(rawStart);
-    end = rawEnd ? Number(rawEnd) : fileSize - 1;
+    const suffixLength = BigInt(rawEnd);
+    // RFC 9110 §14.1.2: suffix-length of 0 or empty representation is unsatisfiable.
+    if (suffixLength === 0n || sizeBig <= 0n) return { kind: 'unsatisfiable' };
+    const startBig = suffixLength >= sizeBig ? 0n : sizeBig - suffixLength;
+    return { kind: 'satisfiable', start: Number(startBig), end: fileSize - 1 };
   }
 
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return { kind: 'none' };
-  if (start < 0 || start >= fileSize || end < start) return { kind: 'unsatisfiable' };
+  const startBig = BigInt(rawStart);
+  if (rawEnd) {
+    const endBig = BigInt(rawEnd);
+    // RFC 9110 §14.1.2: int-range-spec is syntactically invalid if last-pos < first-pos.
+    if (endBig < startBig) return { kind: 'none' };
+    if (sizeBig <= 0n || startBig >= sizeBig) return { kind: 'unsatisfiable' };
+    const clampedEnd = endBig >= sizeBig ? sizeBig - 1n : endBig;
+    return { kind: 'satisfiable', start: Number(startBig), end: Number(clampedEnd) };
+  }
 
-  return { kind: 'satisfiable', start, end: Math.min(end, fileSize - 1) };
+  if (sizeBig <= 0n || startBig >= sizeBig) return { kind: 'unsatisfiable' };
+  return { kind: 'satisfiable', start: Number(startBig), end: fileSize - 1 };
+}
+
+type ResponseBody = ConstructorParameters<typeof Response>[0];
+
+function createProtocolResponse(
+  method: string,
+  body: ResponseBody,
+  init: ResponseInit
+): Response {
+  // RFC 9110 §9.3.2: HEAD responses must never contain a message body.
+  return new Response(method === 'HEAD' ? null : body, init);
+}
+
+function createWebReadStream(
+  filePath: string,
+  signal?: AbortSignal,
+  options?: { start?: number; end?: number }
+): ReadableStream<Uint8Array> {
+  const nodeStream = fs.createReadStream(filePath, options);
+  if (signal) {
+    if (signal.aborted) {
+      nodeStream.destroy();
+    } else {
+      const onAbort = () => nodeStream.destroy();
+      signal.addEventListener('abort', onAbort, { once: true });
+      nodeStream.once('close', () => signal.removeEventListener('abort', onAbort));
+    }
+  }
+  return Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
 }
 
 function getMimeType(filePath: string): string {
@@ -143,6 +184,7 @@ function getMimeType(filePath: string): string {
     case '.ogg':
       return 'audio/ogg';
     case '.m4a':
+      return 'audio/mp4';
     case '.aac':
       return 'audio/aac';
     default:
@@ -179,11 +221,12 @@ let audioProtocolsRegistered = false;
 export function registerAudioProtocols(): void {
   if (audioProtocolsRegistered) return;
   audioProtocolsRegistered = true;
-  protocol.handle('maja-audio', (request) => {
+
+  protocol.handle('maja-audio', async (request) => {
+    const method = request.method.toUpperCase();
     try {
-      const method = request.method.toUpperCase();
       if (method !== 'GET' && method !== 'HEAD') {
-        return new Response('Method Not Allowed', {
+        return createProtocolResponse(method, 'Method Not Allowed', {
           status: 405,
           headers: { Allow: 'GET, HEAD' },
         });
@@ -191,22 +234,22 @@ export function registerAudioProtocols(): void {
 
       const parsedUrl = new URL(request.url);
       if (parsedUrl.hostname !== 'stream') {
-        return new Response('File not found', { status: 404 });
+        return createProtocolResponse(method, 'File not found', { status: 404 });
       }
 
-      const filePath = parsedUrl.searchParams.get('path');
-      if (
-        !filePath ||
-        !path.isAbsolute(filePath) ||
-        !isSupportedAudioPath(filePath) ||
-        !isTrackPathKnown(filePath)
-      ) {
-        return new Response('File not found', { status: 404 });
+      const rawPath = parsedUrl.searchParams.get('path');
+      if (!rawPath || rawPath.includes('\0') || !path.isAbsolute(rawPath)) {
+        return createProtocolResponse(method, 'File not found', { status: 404 });
       }
 
-      const stat = fs.statSync(filePath);
+      const filePath = normalizePlatformPath(rawPath);
+      if (!isSupportedAudioPath(filePath) || !isTrackPathKnown(filePath)) {
+        return createProtocolResponse(method, 'File not found', { status: 404 });
+      }
+
+      const stat = await fs.promises.stat(filePath);
       if (!stat.isFile()) {
-        return new Response('File not found', { status: 404 });
+        return createProtocolResponse(method, 'File not found', { status: 404 });
       }
 
       const fileSize = stat.size;
@@ -222,7 +265,7 @@ export function registerAudioProtocols(): void {
         const range = parseRangeHeader(rangeHeader, fileSize);
 
         if (range.kind === 'unsatisfiable') {
-          return new Response('Range Not Satisfiable', {
+          return createProtocolResponse(method, 'Range Not Satisfiable', {
             status: 416,
             headers: {
               'Content-Range': `bytes */${fileSize}`,
@@ -241,13 +284,15 @@ export function registerAudioProtocols(): void {
           };
 
           if (method === 'HEAD') {
-            return new Response(null, { status: 206, statusText: 'Partial Content', headers });
+            return createProtocolResponse(method, null, {
+              status: 206,
+              statusText: 'Partial Content',
+              headers,
+            });
           }
 
-          const nodeStream = fs.createReadStream(filePath, { start, end });
-          const webStream = Readable.toWeb(nodeStream);
-
-          return new Response(webStream as any, {
+          const webStream = createWebReadStream(filePath, request.signal, { start, end });
+          return new Response(webStream, {
             status: 206,
             statusText: 'Partial Content',
             headers,
@@ -256,7 +301,7 @@ export function registerAudioProtocols(): void {
       }
 
       if (method === 'HEAD') {
-        return new Response(null, {
+        return createProtocolResponse(method, null, {
           status: 200,
           headers: {
             ...baseHeaders,
@@ -265,10 +310,8 @@ export function registerAudioProtocols(): void {
         });
       }
 
-      const nodeStream = fs.createReadStream(filePath);
-      const webStream = Readable.toWeb(nodeStream);
-
-      return new Response(webStream as any, {
+      const webStream = createWebReadStream(filePath, request.signal);
+      return new Response(webStream, {
         status: 200,
         headers: {
           ...baseHeaders,
@@ -276,16 +319,18 @@ export function registerAudioProtocols(): void {
         },
       });
     } catch (err) {
-      console.error('Error serving audio protocol:', err);
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        console.error('Error serving audio protocol:', err);
+      }
+      return createProtocolResponse(method, 'File not found', { status: 404 });
     }
-    return new Response('File not found', { status: 404 });
   });
 
-  protocol.handle('maja-artwork', (request) => {
+  protocol.handle('maja-artwork', async (request) => {
+    const method = request.method.toUpperCase();
     try {
-      const method = request.method.toUpperCase();
       if (method !== 'GET' && method !== 'HEAD') {
-        return new Response('Method Not Allowed', {
+        return createProtocolResponse(method, 'Method Not Allowed', {
           status: 405,
           headers: { Allow: 'GET, HEAD' },
         });
@@ -295,22 +340,27 @@ export function registerAudioProtocols(): void {
 
       if (parsedUrl.hostname === 'stream') {
         const fileName = parsedUrl.searchParams.get('file');
-        if (!fileName || !fileName.startsWith('art_') || path.basename(fileName) !== fileName) {
-          return new Response('Artwork not found', { status: 404 });
+        if (
+          !fileName ||
+          fileName.includes('\0') ||
+          !fileName.startsWith('art_') ||
+          path.basename(fileName) !== fileName
+        ) {
+          return createProtocolResponse(method, 'Artwork not found', { status: 404 });
         }
 
         const artDir = path.resolve(ensureArtworkDirExists());
         const fullPath = path.resolve(artDir, fileName);
-        if (
-          !isPathInside(artDir, fullPath) ||
-          !isImagePath(fullPath) ||
-          !fs.existsSync(fullPath) ||
-          !fs.statSync(fullPath).isFile()
-        ) {
-          return new Response('Artwork not found', { status: 404 });
+        if (!isPathInside(artDir, fullPath) || !isImagePath(fullPath)) {
+          return createProtocolResponse(method, 'Artwork not found', { status: 404 });
         }
 
-        return net.fetch(pathToFileURL(fullPath).toString(), {
+        const stat = await fs.promises.stat(fullPath);
+        if (!stat.isFile()) {
+          return createProtocolResponse(method, 'Artwork not found', { status: 404 });
+        }
+
+        return await net.fetch(pathToFileURL(fullPath).toString(), {
           headers: request.headers,
           method: request.method,
         });
@@ -319,35 +369,35 @@ export function registerAudioProtocols(): void {
       if (parsedUrl.hostname === 'load') {
         const targetPath = extractWallpaperPath(request.url);
         if (!targetPath) {
-          return new Response('Artwork not found', { status: 404 });
+          return createProtocolResponse(method, 'Artwork not found', { status: 404 });
         }
 
-        const allowedWallpaperPath = getAllowedWallpaperPath();
-        const isMatch =
-          allowedWallpaperPath !== null &&
-          normalizePathForComparison(targetPath) === normalizePathForComparison(allowedWallpaperPath);
-
-        if (!isMatch) {
-          return new Response('Access denied: unapproved wallpaper path', { status: 403 });
+        if (!isWallpaperPathApproved(targetPath)) {
+          return createProtocolResponse(method, 'Access denied: unapproved wallpaper path', {
+            status: 403,
+          });
         }
 
-        if (
-          !isImagePath(targetPath) ||
-          !fs.existsSync(targetPath) ||
-          !fs.statSync(targetPath).isFile()
-        ) {
-          return new Response('Artwork not found', { status: 404 });
+        if (!isImagePath(targetPath)) {
+          return createProtocolResponse(method, 'Artwork not found', { status: 404 });
         }
 
-        return net.fetch(pathToFileURL(targetPath).toString(), {
+        const stat = await fs.promises.stat(targetPath);
+        if (!stat.isFile()) {
+          return createProtocolResponse(method, 'Artwork not found', { status: 404 });
+        }
+
+        return await net.fetch(pathToFileURL(targetPath).toString(), {
           headers: request.headers,
           method: request.method,
         });
       }
     } catch (err) {
-      console.error('Error serving artwork protocol:', err);
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        console.error('Error serving artwork protocol:', err);
+      }
     }
-    return new Response('Artwork not found', { status: 404 });
+    return createProtocolResponse(method, 'Artwork not found', { status: 404 });
   });
 }
 

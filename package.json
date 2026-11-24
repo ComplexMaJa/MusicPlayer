@@ -7,11 +7,13 @@
   "scripts": {
     "dev:renderer": "vite",
     "dev:main": "esbuild src/main/index.ts src/preload/index.ts --outdir=dist --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs --out-extension:.js=.cjs",
-    "dev": "pnpm dev:main && concurrently -k \"pnpm dev:renderer\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
-    "build:main": "esbuild src/main/index.ts --outfile=dist/main/index.cjs --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs && esbuild src/preload/index.ts --outfile=dist/preload/index.cjs --bundle --platform=node --target=node20 --external:electron --format=cjs",
+    "dev": "pnpm dev:main && concurrently -k \"pnpm dev:renderer\" \"node -e \\\"const http=require('http');const poll=()=>http.get('http://127.0.0.1:5173',r=>{r.resume();process.exit(0)}).on('error',()=>setTimeout(poll,150));poll();\\\" && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build:main": "esbuild src/main/index.ts --outfile=dist/main/index.cjs --bundle --platform=node --target=node20 --external:electron --external:sql.js --external:music-metadata --format=cjs --minify && esbuild src/preload/index.ts --outfile=dist/preload/index.cjs --bundle --platform=node --target=node20 --external:electron --format=cjs --minify",
     "build:renderer": "vite build",
     "build": "rimraf dist && pnpm build:main && pnpm build:renderer",
-    "typecheck": "tsc --noEmit"
+    "package": "pnpm typecheck && pnpm build && electron-builder --dir",
+    "dist": "pnpm typecheck && pnpm build && electron-builder",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "keywords": [
     "electron",
@@ -25,14 +27,8 @@
   "author": "MaJa",
   "license": "MIT",
   "dependencies": {
-    "clsx": "^2.1.1",
-    "lucide-react": "^1.31.0",
     "music-metadata": "^11.16.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "sql.js": "^1.14.1",
-    "tailwind-merge": "^3.6.0",
-    "zustand": "^5.0.14"
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -41,14 +37,59 @@
     "@types/react-dom": "^19.2.4",
     "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^6.0.5",
+    "clsx": "^2.1.1",
     "concurrently": "^10.0.4",
     "cross-env": "^10.1.0",
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "rimraf": "^6.1.3",
+    "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "zustand": "^5.0.14"
+  },
+  "build": {
+    "appId": "com.maja.player",
+    "productName": "MaJa Player",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.music",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "AudioVideo;Audio",
+      "icon": "build/icon.png"
+    }
   }
 }
