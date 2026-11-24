@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { User } from 'lucide-react';
 import { Artist } from '../../shared/types';
 import { useLibraryStore } from '../stores/useLibraryStore';
@@ -7,9 +7,14 @@ interface ArtistCardProps {
   artist: Artist;
 }
 
-export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
+export const ArtistCard: React.FC<ArtistCardProps> = memo(({ artist }) => {
   const setSelectedArtistId = useLibraryStore((state) => state.setSelectedArtistId);
   const setActiveView = useLibraryStore((state) => state.setActiveView);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [artist.artworkPath]);
 
   const handleClick = () => {
     setSelectedArtistId(artist.id);
@@ -23,10 +28,12 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
       className="w-full bg-[#0A0A0A] border border-[#1A1A1A] hover:border-white/20 p-4 rounded-2xl flex flex-col items-center text-center gap-3 transition-all duration-200 ease-out group cursor-pointer select-none hover:-translate-y-1"
     >
       <div className="w-24 h-24 rounded-full overflow-hidden bg-[#101010] border border-[#1A1A1A] relative shadow-lg transition-all duration-300">
-        {artist.artworkPath ? (
+        {artist.artworkPath && !imgError ? (
           <img
             src={artist.artworkPath}
             alt={artist.name}
+            loading="lazy"
+            onError={() => setImgError(true)}
             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300 ease-out"
           />
         ) : (
@@ -40,9 +47,12 @@ export const ArtistCard: React.FC<ArtistCardProps> = ({ artist }) => {
           {artist.name}
         </h4>
         <p className="text-[10px] text-[#666666] uppercase tracking-wider font-mono mt-0.5">
-          {artist.albumCount} {artist.albumCount === 1 ? 'ALBUM' : 'ALBUMS'} • {artist.trackCount} TRACKS
+          {artist.albumCount} {artist.albumCount === 1 ? 'ALBUM' : 'ALBUMS'} • {artist.trackCount}{' '}
+          {artist.trackCount === 1 ? 'TRACK' : 'TRACKS'}
         </p>
       </div>
     </button>
   );
-};
+});
+
+ArtistCard.displayName = 'ArtistCard';

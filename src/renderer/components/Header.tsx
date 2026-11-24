@@ -1,17 +1,25 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Search, Minus, Square, X } from 'lucide-react';
 import { useLibraryStore } from '../stores/useLibraryStore';
 
 export const Header: React.FC = () => {
   const searchQuery = useLibraryStore((state) => state.searchQuery);
+  const activeView = useLibraryStore((state) => state.activeView);
   const setSearchQuery = useLibraryStore((state) => state.setSearchQuery);
   const setActiveView = useLibraryStore((state) => state.setActiveView);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-    if (e.target.value.trim().length > 0) {
+    const value = e.target.value;
+    setSearchQuery(value);
+    if (value.trim().length > 0 && activeView !== 'search') {
       setActiveView('search');
     }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    inputRef.current?.focus();
   };
 
   const handleMinimize = () => window.electronAPI?.minimizeWindow();
@@ -23,10 +31,11 @@ export const Header: React.FC = () => {
       {/* Search Input Box */}
       <div className="relative w-80 app-no-drag group">
         <Search
-          className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666] transition-colors duration-200"
+          className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#666666] transition-colors duration-200 pointer-events-none"
           style={{ color: searchQuery ? 'var(--accent-color, #FF2E55)' : undefined }}
         />
         <input
+          ref={inputRef}
           type="text"
           value={searchQuery}
           onChange={handleSearchChange}
@@ -35,8 +44,19 @@ export const Header: React.FC = () => {
           style={{
             borderColor: searchQuery ? 'var(--accent-color, #FF2E55)' : undefined,
           }}
-          className="w-full bg-[#0A0A0A] border border-[#1A1A1A] rounded-full py-1.5 pl-10 pr-4 text-xs text-[#EDEDED] placeholder-[#666666] outline-none transition-all duration-200"
+          className="w-full bg-[#0A0A0A] border border-[#1A1A1A] rounded-full py-1.5 pl-10 pr-8 text-xs text-[#EDEDED] placeholder-[#666666] outline-none transition-all duration-200"
         />
+        {searchQuery.length > 0 && (
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            aria-label="Clear search"
+            title="Clear search"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-[#666666] hover:text-white hover:bg-[#1A1A1A] transition-colors cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* User Info & Window Controls */}
@@ -58,6 +78,7 @@ export const Header: React.FC = () => {
         {/* Window Controls */}
         <div className="flex items-center gap-1 ml-2 text-[#A3A3A3]">
           <button
+            type="button"
             onClick={handleMinimize}
             className="p-1.5 hover:bg-[#151515] hover:text-white rounded-lg transition-all duration-150 hover:scale-105 active:scale-95"
             title="Minimize"
@@ -66,14 +87,16 @@ export const Header: React.FC = () => {
             <Minus className="w-3.5 h-3.5" />
           </button>
           <button
+            type="button"
             onClick={handleMaximize}
             className="p-1.5 hover:bg-[#151515] hover:text-white rounded-lg transition-all duration-150 hover:scale-105 active:scale-95"
-            title="Maximize"
+            title="Maximize or restore"
             aria-label="Maximize or restore window"
           >
             <Square className="w-3 h-3" />
           </button>
           <button
+            type="button"
             onClick={handleClose}
             className="p-1.5 hover:bg-[#FF2E55] hover:text-white rounded-lg transition-all duration-150 hover:scale-105 active:scale-95"
             title="Close"

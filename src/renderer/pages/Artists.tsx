@@ -15,11 +15,13 @@ export const Artists: React.FC = () => {
           LIBRARY
         </h2>
         <h1 className="text-3xl font-bold text-white tracking-tight">ARTISTS</h1>
-        <p className="text-xs text-[#A3A3A3] mt-1 font-mono">{artists.length} ARTISTS</p>
+        <p className="text-xs text-[#A3A3A3] mt-1 font-mono">
+          {artists.length} {artists.length === 1 ? 'ARTIST' : 'ARTISTS'}
+        </p>
       </div>
 
       {artists.length > 0 ? (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {artists.map((artist) => (
             <ArtistCard key={artist.id} artist={artist} />
           ))}

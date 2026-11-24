@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { ViewMode } from '../../shared/types';
 
 export const Sidebar: React.FC = () => {
@@ -30,6 +31,7 @@ export const Sidebar: React.FC = () => {
       setSelectedPlaylistId: state.setSelectedPlaylistId,
     }))
   );
+  const reducedMotion = useSettingsStore((state) => state.settings.reducedMotion);
 
   const navItems: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Now Playing', icon: <Disc className="w-4 h-4" /> },
@@ -40,6 +42,12 @@ export const Sidebar: React.FC = () => {
     { id: 'playlists', label: 'Playlists', icon: <ListMusic className="w-4 h-4" /> },
     { id: 'favorites', label: 'Favorites', icon: <Heart className="w-4 h-4" /> },
   ];
+
+  const isPlaylistView = activeView === 'playlist-detail' || activeView === 'playlists';
+  const effectiveSelectedPlaylistId =
+    selectedPlaylistId && playlists.some((pl) => pl.id === selectedPlaylistId)
+      ? selectedPlaylistId
+      : playlists[0]?.id ?? null;
 
   return (
     <aside className="w-56 bg-[#050505] border-r border-[#1A1A1A] flex flex-col justify-between h-full select-none shrink-0">
@@ -62,12 +70,17 @@ export const Sidebar: React.FC = () => {
         </div>
 
         {/* Main Navigation Links */}
-        <nav className="flex flex-col gap-1">
+        <nav aria-label="Primary navigation" className="flex flex-col gap-1">
           {navItems.map((item) => {
-            const isActive = activeView === item.id && activeView !== 'playlist-detail';
+            const isActive =
+              item.id === 'playlists'
+                ? activeView === 'playlists'
+                : activeView === item.id;
             return (
               <button
                 key={item.id}
+                type="button"
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => setActiveView(item.id)}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 group relative ${
                   isActive
@@ -103,10 +116,12 @@ export const Sidebar: React.FC = () => {
           </h2>
           <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
             {playlists.map((pl) => {
-              const isSelected = activeView === 'playlist-detail' && selectedPlaylistId === pl.id;
+              const isSelected = isPlaylistView && effectiveSelectedPlaylistId === pl.id;
               return (
                 <button
                   key={pl.id}
+                  type="button"
+                  aria-current={isSelected ? 'page' : undefined}
                   onClick={() => {
                     setSelectedPlaylistId(pl.id);
                     setActiveView('playlist-detail');
@@ -119,7 +134,7 @@ export const Sidebar: React.FC = () => {
                   style={isSelected ? { color: 'var(--accent-color, #FF2E55)' } : undefined}
                 >
                   <span
-                    className="w-1.5 h-1.5 rounded-full transition-colors"
+                    className="w-1.5 h-1.5 rounded-full transition-colors shrink-0"
                     style={
                       isSelected
                         ? {
@@ -140,6 +155,8 @@ export const Sidebar: React.FC = () => {
       {/* Bottom Settings Link */}
       <div className="p-4 border-t border-[#1A1A1A]">
         <button
+          type="button"
+          aria-current={activeView === 'settings' ? 'page' : undefined}
           onClick={() => setActiveView('settings')}
           className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 group relative ${
             activeView === 'settings'
@@ -157,7 +174,9 @@ export const Sidebar: React.FC = () => {
             />
           )}
           <SettingsIcon
-            className="w-4 h-4 transition-all duration-300 group-hover:rotate-45"
+            className={`w-4 h-4 transition-all duration-300 ${
+              reducedMotion ? '' : 'group-hover:rotate-45 motion-reduce:group-hover:rotate-0'
+            }`}
             style={activeView === 'settings' ? { color: 'var(--accent-color, #FF2E55)' } : { color: '#666666' }}
           />
           <span className="transition-transform duration-200 group-hover:translate-x-0.5">Settings</span>

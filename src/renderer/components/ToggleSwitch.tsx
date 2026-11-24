@@ -7,6 +7,7 @@ interface ToggleSwitchProps {
   className?: string;
   label?: string;
   description?: string;
+  ariaLabel?: string;
 }
 
 export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
@@ -16,12 +17,14 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   className = '',
   label,
   description,
+  ariaLabel,
 }) => {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`w-full text-left flex items-center justify-between select-none group ${
@@ -30,7 +33,11 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
     >
       {(label || description) && (
         <div className="flex flex-col gap-0.5 pr-4">
-          {label && <p className="text-xs font-semibold text-white group-hover:text-white transition-colors">{label}</p>}
+          {label && (
+            <p className="text-xs font-semibold text-white group-hover:text-white transition-colors">
+              {label}
+            </p>
+          )}
           {description && <p className="text-[11px] text-[#666666] font-light">{description}</p>}
         </div>
       )}

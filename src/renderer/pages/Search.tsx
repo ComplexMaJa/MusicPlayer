@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { Search as SearchIcon, ListMusic } from 'lucide-react';
+import React, { useDeferredValue, useMemo, useRef, useState } from 'react';
+import { Search as SearchIcon, ListMusic, ArrowRight } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import { VirtualTrackList } from '../components/VirtualTrackList';
@@ -7,6 +7,14 @@ import { AlbumCard } from '../components/AlbumCard';
 import { ArtistCard } from '../components/ArtistCard';
 
 type SearchTab = 'all' | 'songs' | 'artists' | 'albums' | 'playlists';
+
+const SEARCH_TABS: { id: SearchTab; label: string }[] = [
+  { id: 'all', label: 'All Results' },
+  { id: 'songs', label: 'Songs' },
+  { id: 'artists', label: 'Artists' },
+  { id: 'albums', label: 'Albums' },
+  { id: 'playlists', label: 'Playlists' },
+];
 
 export const Search: React.FC = () => {
   const {
@@ -30,8 +38,9 @@ export const Search: React.FC = () => {
   );
   const [activeTab, setActiveTab] = useState<SearchTab>('all');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
-  const query = searchQuery.toLowerCase().trim();
+  const query = deferredSearchQuery.toLowerCase().trim();
 
   const { filteredTracks, filteredAlbums, filteredArtists, filteredPlaylists } = useMemo(() => {
     if (!query) {
@@ -61,14 +70,22 @@ export const Search: React.FC = () => {
     };
   }, [albums, artists, playlists, query, tracks]);
 
-  const visibleTracks =
-    activeTab === 'all' ? filteredTracks.slice(0, 8) : filteredTracks;
-  const visibleArtists =
-    activeTab === 'all' ? filteredArtists.slice(0, 5) : filteredArtists;
-  const visibleAlbums =
-    activeTab === 'all' ? filteredAlbums.slice(0, 5) : filteredAlbums;
-  const visiblePlaylists =
-    activeTab === 'all' ? filteredPlaylists.slice(0, 5) : filteredPlaylists;
+  const visibleTracks = useMemo(
+    () => (activeTab === 'all' ? filteredTracks.slice(0, 8) : filteredTracks),
+    [activeTab, filteredTracks]
+  );
+  const visibleArtists = useMemo(
+    () => (activeTab === 'all' ? filteredArtists.slice(0, 5) : filteredArtists),
+    [activeTab, filteredArtists]
+  );
+  const visibleAlbums = useMemo(
+    () => (activeTab === 'all' ? filteredAlbums.slice(0, 5) : filteredAlbums),
+    [activeTab, filteredAlbums]
+  );
+  const visiblePlaylists = useMemo(
+    () => (activeTab === 'all' ? filteredPlaylists.slice(0, 5) : filteredPlaylists),
+    [activeTab, filteredPlaylists]
+  );
 
   const hasResults =
     activeTab === 'all'
@@ -93,18 +110,19 @@ export const Search: React.FC = () => {
       <div className="flex flex-col gap-4">
         <h1 className="text-3xl font-bold text-white tracking-tight">SEARCH</h1>
 
-        {/* Tab Buttons matching Screen #7 */}
-        <div className="flex items-center gap-2 border-b border-[#1A1A1A] pb-3">
-          {[
-            { id: 'all', label: 'All Results' },
-            { id: 'songs', label: 'Songs' },
-            { id: 'artists', label: 'Artists' },
-            { id: 'albums', label: 'Albums' },
-            { id: 'playlists', label: 'Playlists' },
-          ].map((tab) => (
+        {/* Tab Buttons */}
+        <div
+          role="tablist"
+          aria-label="Search result categories"
+          className="flex items-center gap-2 border-b border-[#1A1A1A] pb-3"
+        >
+          {SEARCH_TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as SearchTab)}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
               className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer ${
                 activeTab === tab.id
                   ? 'text-white shadow-md'
@@ -130,9 +148,21 @@ export const Search: React.FC = () => {
           {/* Songs Results */}
           {(activeTab === 'all' || activeTab === 'songs') && filteredTracks.length > 0 && (
             <section className="flex flex-col gap-3">
-              <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
-                SONGS ({filteredTracks.length})
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
+                  SONGS ({filteredTracks.length})
+                </h2>
+                {activeTab === 'all' && filteredTracks.length > visibleTracks.length && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('songs')}
+                    className="text-xs text-[#A3A3A3] hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <span>View all {filteredTracks.length}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
               <div className="flex flex-col gap-1">
                 <VirtualTrackList
                   tracks={visibleTracks}
@@ -146,10 +176,22 @@ export const Search: React.FC = () => {
           {/* Artists Results */}
           {(activeTab === 'all' || activeTab === 'artists') && filteredArtists.length > 0 && (
             <section className="flex flex-col gap-3">
-              <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
-                ARTISTS ({filteredArtists.length})
-              </h2>
-              <div className="grid grid-cols-5 gap-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
+                  ARTISTS ({filteredArtists.length})
+                </h2>
+                {activeTab === 'all' && filteredArtists.length > visibleArtists.length && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('artists')}
+                    className="text-xs text-[#A3A3A3] hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <span>View all {filteredArtists.length}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {visibleArtists.map((artist) => (
                   <ArtistCard key={artist.id} artist={artist} />
                 ))}
@@ -160,10 +202,22 @@ export const Search: React.FC = () => {
           {/* Albums Results */}
           {(activeTab === 'all' || activeTab === 'albums') && filteredAlbums.length > 0 && (
             <section className="flex flex-col gap-3">
-              <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
-                ALBUMS ({filteredAlbums.length})
-              </h2>
-              <div className="grid grid-cols-5 gap-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
+                  ALBUMS ({filteredAlbums.length})
+                </h2>
+                {activeTab === 'all' && filteredAlbums.length > visibleAlbums.length && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('albums')}
+                    className="text-xs text-[#A3A3A3] hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <span>View all {filteredAlbums.length}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {visibleAlbums.map((album) => (
                   <AlbumCard key={album.id} album={album} />
                 ))}
@@ -175,13 +229,26 @@ export const Search: React.FC = () => {
           {(activeTab === 'all' || activeTab === 'playlists') &&
             filteredPlaylists.length > 0 && (
               <section className="flex flex-col gap-3">
-                <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
-                  PLAYLISTS ({filteredPlaylists.length})
-                </h2>
-                <div className="grid grid-cols-5 gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-[11px] font-semibold text-[#666666] uppercase tracking-widest font-mono">
+                    PLAYLISTS ({filteredPlaylists.length})
+                  </h2>
+                  {activeTab === 'all' && filteredPlaylists.length > visiblePlaylists.length && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('playlists')}
+                      className="text-xs text-[#A3A3A3] hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <span>View all {filteredPlaylists.length}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   {visiblePlaylists.map((playlist) => (
                     <button
                       key={playlist.id}
+                      type="button"
                       onClick={() => {
                         setSelectedPlaylistId(playlist.id);
                         setActiveView('playlist-detail');
@@ -206,7 +273,7 @@ export const Search: React.FC = () => {
 
           {!hasResults && (
             <div className="py-16 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl text-xs text-[#666666]">
-              No results found for "{searchQuery}".
+              No results found for "{deferredSearchQuery.trim()}".
             </div>
           )}
         </div>

@@ -30,11 +30,14 @@ export const Favorites: React.FC = () => {
             YOUR COLLECTION
           </h2>
           <h1 className="text-3xl font-bold text-white tracking-tight">FAVORITES</h1>
-          <p className="text-xs text-[#A3A3A3] mt-1 font-mono">{favorites.length} TRACKS LIKED</p>
+          <p className="text-xs text-[#A3A3A3] mt-1 font-mono">
+            {favorites.length} {favorites.length === 1 ? 'TRACK' : 'TRACKS'} LIKED
+          </p>
         </div>
 
         {favorites.length > 0 && (
           <button
+            type="button"
             onClick={handlePlayAll}
             className="flex items-center gap-2 px-5 py-2 rounded-xl text-white text-xs font-semibold shadow-lg transition-all duration-200 hover:scale-102 active:scale-97 cursor-pointer"
             style={{
@@ -68,7 +71,9 @@ export const Favorites: React.FC = () => {
           <div className="py-16 text-center bg-[#0A0A0A] border border-[#1A1A1A] rounded-xl flex flex-col items-center gap-3 text-xs text-[#666666]">
             <Heart className="w-8 h-8 opacity-50" style={{ color: 'var(--accent-color, #FF2E55)' }} />
             <p>You haven't added any favorite tracks yet.</p>
-            <p className="text-[11px] text-[#A3A3A3]">Click the heart icon on any song to save it to your Favorites.</p>
+            <p className="text-[11px] text-[#A3A3A3]">
+              Click the heart icon on any song to save it to your Favorites.
+            </p>
           </div>
         )}
       </div>

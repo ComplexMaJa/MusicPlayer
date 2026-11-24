@@ -15,11 +15,13 @@ export const Albums: React.FC = () => {
           COLLECTION
         </h2>
         <h1 className="text-3xl font-bold text-white tracking-tight">ALBUMS</h1>
-        <p className="text-xs text-[#A3A3A3] mt-1 font-mono">{albums.length} ALBUMS AVAILABLE</p>
+        <p className="text-xs text-[#A3A3A3] mt-1 font-mono">
+          {albums.length} {albums.length === 1 ? 'ALBUM' : 'ALBUMS'} AVAILABLE
+        </p>
       </div>
 
       {albums.length > 0 ? (
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {albums.map((album) => (
             <AlbumCard key={album.id} album={album} />
           ))}

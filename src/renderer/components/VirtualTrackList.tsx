@@ -13,7 +13,10 @@ interface VirtualTrackListProps {
   tracks: Track[];
   queueContext?: Track[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
-  renderRowExtra?: (track: Track) => React.ReactNode;
+  getRowKey?: (track: Track, index: number) => string;
+  onPlayTrack?: (track: Track, index: number) => void;
+  onRemoveTrack?: (track: Track, index: number) => void;
+  removeLabel?: string;
 }
 
 /**
@@ -25,7 +28,10 @@ export const VirtualTrackList: React.FC<VirtualTrackListProps> = ({
   tracks,
   queueContext,
   scrollRef,
-  renderRowExtra,
+  getRowKey,
+  onPlayTrack,
+  onRemoveTrack,
+  removeLabel,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState(() => ({
@@ -92,6 +98,9 @@ export const VirtualTrackList: React.FC<VirtualTrackListProps> = ({
     const resizeObserver = new ResizeObserver(scheduleUpdate);
     resizeObserver.observe(scrollElement);
     resizeObserver.observe(listElement);
+    if (listElement.parentElement && listElement.parentElement !== scrollElement) {
+      resizeObserver.observe(listElement.parentElement);
+    }
 
     return () => {
       scrollElement.removeEventListener('scroll', scheduleUpdate);
@@ -100,7 +109,7 @@ export const VirtualTrackList: React.FC<VirtualTrackListProps> = ({
       resizeObserver.disconnect();
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [scrollRef, tracks.length]);
+  }, [scrollRef, tracks]);
 
   const start = Math.min(range.start, tracks.length);
   const end = Math.min(range.end, tracks.length);
@@ -116,20 +125,25 @@ export const VirtualTrackList: React.FC<VirtualTrackListProps> = ({
         overflowAnchor: 'none',
       }}
     >
-      {visibleTracks.map((track, offset) => (
-        <div
-          key={track.id}
-          className="relative group"
-          style={{ height: ROW_HEIGHT, marginBottom: ROW_GAP, flexShrink: 0 }}
-        >
-          <TrackRow
-            track={track}
-            index={start + offset}
-            queueContext={queueContext}
-          />
-          {renderRowExtra?.(track)}
-        </div>
-      ))}
+      {visibleTracks.map((track, offset) => {
+        const absoluteIndex = start + offset;
+        return (
+          <div
+            key={getRowKey ? getRowKey(track, absoluteIndex) : track.id}
+            className="relative group"
+            style={{ height: ROW_HEIGHT, marginBottom: ROW_GAP, flexShrink: 0 }}
+          >
+            <TrackRow
+              track={track}
+              index={absoluteIndex}
+              queueContext={queueContext}
+              onPlay={onPlayTrack}
+              onRemove={onRemoveTrack}
+              removeLabel={removeLabel}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 };
