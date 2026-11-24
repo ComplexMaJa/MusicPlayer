@@ -8,14 +8,22 @@ interface SettingsStoreState {
   updateSettings: (newSettings: Partial<Settings>) => Promise<void>;
 }
 
+let settingsLoadSeq = 0;
+let settingsUpdateSeq = 0;
+
 export const useSettingsStore = create<SettingsStoreState>((set) => ({
   settings: DEFAULT_SETTINGS,
 
   loadSettings: async () => {
-    if (!window.electronAPI) return undefined;
+    const api = window.electronAPI;
+    if (!api) return undefined;
+    const reqLoadSeq = ++settingsLoadSeq;
+    const updateEpochAtStart = settingsUpdateSeq;
     try {
-      const settings = await window.electronAPI.getSettings();
-      set({ settings });
+      const settings = await api.getSettings();
+      if (settings && reqLoadSeq === settingsLoadSeq && settingsUpdateSeq === updateEpochAtStart) {
+        set({ settings });
+      }
       return settings;
     } catch (err) {
       console.error('Error loading settings:', err);
@@ -24,10 +32,14 @@ export const useSettingsStore = create<SettingsStoreState>((set) => ({
   },
 
   updateSettings: async (newSettings: Partial<Settings>) => {
-    if (!window.electronAPI) return;
+    const api = window.electronAPI;
+    if (!api) return;
+    const reqUpdateSeq = ++settingsUpdateSeq;
     try {
-      const updated = await window.electronAPI.saveSettings(newSettings);
-      set({ settings: updated });
+      const updated = await api.saveSettings(newSettings);
+      if (updated && reqUpdateSeq === settingsUpdateSeq) {
+        set({ settings: updated });
+      }
     } catch (err) {
       console.error('Error saving settings:', err);
     }

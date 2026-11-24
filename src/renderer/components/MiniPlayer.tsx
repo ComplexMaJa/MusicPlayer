@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import {
   Play,
   Pause,
@@ -69,6 +69,11 @@ export const MiniPlayer: React.FC = () => {
 
   const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
   const setActiveView = useLibraryStore((state) => state.setActiveView);
+  const [artworkError, setArtworkError] = useState(false);
+
+  useEffect(() => {
+    setArtworkError(false);
+  }, [currentTrack?.id, currentTrack?.artworkPath]);
 
   if (!currentTrack) {
     return (
@@ -91,10 +96,11 @@ export const MiniPlayer: React.FC = () => {
       {/* Left Track Info */}
       <div className="flex items-center gap-3 flex-1 min-w-[220px] max-w-sm">
         <div className="relative w-12 h-12 rounded overflow-hidden bg-[#0A0A0A] border border-[#1A1A1A] shrink-0 group">
-          {currentTrack.artworkPath ? (
+          {currentTrack.artworkPath && !artworkError ? (
             <img
               src={currentTrack.artworkPath}
               alt={currentTrack.title}
+              onError={() => setArtworkError(true)}
               className="w-full h-full object-cover"
             />
           ) : (
@@ -116,8 +122,9 @@ export const MiniPlayer: React.FC = () => {
           <p className="text-[11px] text-[#A3A3A3] truncate">{currentTrack.artist}</p>
         </div>
         <button
-          onClick={() => toggleFavorite(currentTrack.id)}
-          className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav shrink-0"
+          type="button"
+          onClick={() => void toggleFavorite(currentTrack.id)}
+          className="text-[#666666] hover:text-accent transition-all p-1.5 rounded-full hover:bg-[#151515] active:scale-125 group/fav shrink-0 cursor-pointer"
           title="Favorite"
           aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
         >
@@ -138,6 +145,7 @@ export const MiniPlayer: React.FC = () => {
       <div className="flex flex-col items-center gap-1.5 w-full max-w-lg px-4 shrink-0">
         <div className="flex items-center gap-4">
           <button
+            type="button"
             onClick={toggleShuffle}
             className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
             style={
@@ -154,14 +162,16 @@ export const MiniPlayer: React.FC = () => {
             <Shuffle className="w-3.5 h-3.5" />
           </button>
           <button
+            type="button"
             onClick={previousTrack}
-            className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Previous"
             aria-label="Previous track"
           >
             <SkipBack className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={togglePlay}
             className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-lg"
             style={{
@@ -178,14 +188,16 @@ export const MiniPlayer: React.FC = () => {
             )}
           </button>
           <button
+            type="button"
             onClick={nextTrack}
-            className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Next"
             aria-label="Next track"
           >
             <SkipForward className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={toggleRepeatMode}
             className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
             style={
@@ -215,6 +227,7 @@ export const MiniPlayer: React.FC = () => {
           onToggleMute={toggleMute}
         />
         <button
+          type="button"
           onClick={toggleNowPlayingDrawer}
           className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
           title="Side Panel (Artwork & Lyrics)"
@@ -223,6 +236,7 @@ export const MiniPlayer: React.FC = () => {
           <Mic2 className="w-4 h-4" />
         </button>
         <button
+          type="button"
           onClick={() => setActiveView('queue')}
           className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
           title="Queue"
@@ -231,6 +245,7 @@ export const MiniPlayer: React.FC = () => {
           <List className="w-4 h-4" />
         </button>
         <button
+          type="button"
           onClick={toggleCinemaMode}
           className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
           title="Fullscreen Ambient Cinema Mode"

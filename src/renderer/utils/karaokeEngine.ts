@@ -4,6 +4,8 @@
  */
 import { LyricLine } from '../../shared/types';
 
+export const LYRIC_SYNC_LOOKAHEAD = 0.06;
+
 export interface KaraokeWord {
   text: string;
   isSpace: boolean;
@@ -20,18 +22,86 @@ export interface ProcessedKaraokeLine {
   hasWordTimestamps: boolean;
 }
 
+const ENHANCED_WORD_TAG_REGEX = /<(\d+:\d{2}(?:[.:]\d+)?)>|\((\d+:\d{2}(?:[.:]\d+)?)\)/g;
+const STRAY_TIME_TAG_REGEX = /<\d+:\d{2}(?:[.:]\d+)?>|\(\d+:\d{2}(?:[.:]\d+)?\)/g;
+
 /**
- * Parses timestamp string like '01:23.45' or '83.45' to seconds
+ * Parses timestamp string like '01:23.45', '105:23:45', or '83.45' to seconds
  */
 function parseTimestampToSec(ts: string): number {
   if (!ts) return 0;
-  const parts = ts.split(':');
-  if (parts.length === 2) {
-    const min = parseFloat(parts[0]) || 0;
-    const sec = parseFloat(parts[1]) || 0;
+  const colonParts = ts.split(':');
+  if (colonParts.length === 2) {
+    const min = parseFloat(colonParts[0]) || 0;
+    const sec = parseFloat(colonParts[1]) || 0;
     return min * 60 + sec;
   }
+  if (colonParts.length === 3) {
+    const min = parseFloat(colonParts[0]) || 0;
+    const sec = parseFloat(colonParts[1]) || 0;
+    const frac = parseFloat(`0.${colonParts[2]}`) || 0;
+    return min * 60 + sec + frac;
+  }
   return parseFloat(ts) || 0;
+}
+
+function buildEstimatedWords(
+  text: string,
+  startTime: number,
+  lineDuration: number
+): KaraokeWord[] {
+  const tokens = text.split(/(\s+)/);
+  const words: KaraokeWord[] = [];
+
+  let totalWeight = 0;
+  const tokenWeights: number[] = [];
+
+  for (const token of tokens) {
+    if (!token) continue;
+    const isSpace = /^\s+$/.test(token);
+    if (isSpace) {
+      const spaceWeight = 0.15;
+      tokenWeights.push(spaceWeight);
+      totalWeight += spaceWeight;
+    } else {
+      const cleanLen = token.replace(/[^\w]/g, '').length || 1;
+      let weight = Math.max(1, cleanLen);
+
+      if (/[,;\-]/.test(token)) {
+        weight += 0.8;
+      } else if (/[.!?\)]/.test(token)) {
+        weight += 1.4;
+      }
+
+      tokenWeights.push(weight);
+      totalWeight += weight;
+    }
+  }
+
+  if (totalWeight <= 0) totalWeight = 1;
+
+  let accumulatedTime = startTime;
+  let tokenIdx = 0;
+
+  for (const token of tokens) {
+    if (!token) continue;
+    const weight = tokenWeights[tokenIdx] || 1;
+    const tokenDuration = (weight / totalWeight) * lineDuration;
+    const wordStart = accumulatedTime;
+    const wordEnd = accumulatedTime + tokenDuration;
+
+    words.push({
+      text: token,
+      isSpace: /^\s+$/.test(token),
+      startSec: wordStart,
+      endSec: wordEnd,
+    });
+
+    accumulatedTime = wordEnd;
+    tokenIdx++;
+  }
+
+  return words;
 }
 
 /**
@@ -46,72 +116,82 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
     const startTime = line.time;
     const rawText = line.text || '';
 
-    // Check for enhanced word-level LRC tags: <00:12.34>word or (00:12.34)word
-    const enhancedTagRegex = /<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\((\d{1,2}:\d{2}(?:\.\d{1,3})?)\)/g;
-    const hasWordTags = enhancedTagRegex.test(rawText);
+    const tagMatches = Array.from(rawText.matchAll(new RegExp(ENHANCED_WORD_TAG_REGEX.source, 'g')));
 
-    if (hasWordTags) {
-      // Parse enhanced word-level timestamps
+    if (tagMatches.length > 0) {
       const words: KaraokeWord[] = [];
-      const tagWithTextRegex = /(?:<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>|\((\d{1,2}:\d{2}(?:\.\d{1,3})?)\))([^<()]+)/g;
-      let match: RegExpExecArray | null;
       let cleanFullText = '';
       let lastEnd = startTime;
 
-      while ((match = tagWithTextRegex.exec(rawText)) !== null) {
-        const timeStr = match[1] || match[2];
-        const wordText = match[3];
-        const wordStart = parseTimestampToSec(timeStr);
-        const isSpace = /^\s+$/.test(wordText);
+      const firstTagStart = tagMatches[0].index ?? 0;
+      if (firstTagStart > 0) {
+        const prefixText = rawText.slice(0, firstTagStart);
+        const firstWordStart = parseTimestampToSec(tagMatches[0][1] || tagMatches[0][2]);
+        const prefixEnd = Math.max(startTime + 0.1, firstWordStart);
+        cleanFullText += prefixText;
+        words.push({
+          text: prefixText,
+          isSpace: /^\s+$/.test(prefixText),
+          startSec: startTime,
+          endSec: prefixEnd,
+        });
+        lastEnd = prefixEnd;
+      }
 
-        cleanFullText += wordText;
+      for (let i = 0; i < tagMatches.length; i++) {
+        const match = tagMatches[i];
+        const tagStart = match.index ?? 0;
+        const tagEnd = tagStart + match[0].length;
+        const nextTagStart = i + 1 < tagMatches.length ? (tagMatches[i + 1].index ?? rawText.length) : rawText.length;
+        const segmentText = rawText.slice(tagEnd, nextTagStart);
+        if (!segmentText) continue;
 
-        // If there was a previous word, set its end time
+        const wordStart = parseTimestampToSec(match[1] || match[2]);
+        cleanFullText += segmentText;
+
         if (words.length > 0) {
           words[words.length - 1].endSec = Math.max(words[words.length - 1].startSec + 0.1, wordStart);
         }
 
+        const estimatedEnd = wordStart + Math.max(0.2, segmentText.length * 0.08);
         words.push({
-          text: wordText,
-          isSpace,
+          text: segmentText,
+          isSpace: /^\s+$/.test(segmentText),
           startSec: wordStart,
-          endSec: wordStart + Math.max(0.2, wordText.length * 0.08),
+          endSec: estimatedEnd,
         });
 
-        lastEnd = wordStart + Math.max(0.2, wordText.length * 0.08);
+        lastEnd = estimatedEnd;
       }
 
       if (words.length > 0) {
         const lineEndTime = nextLine ? Math.min(nextLine.time, lastEnd + 0.5) : lastEnd + 1.0;
-        words[words.length - 1].endSec = lineEndTime;
+        words[words.length - 1].endSec = Math.max(words[words.length - 1].startSec + 0.1, lineEndTime);
 
         return {
           id: idx,
           time: startTime,
           endTime: lineEndTime,
-          text: cleanFullText || rawText.replace(enhancedTagRegex, ''),
+          text: cleanFullText.trim() || rawText.replace(STRAY_TIME_TAG_REGEX, '').trim(),
           words,
           hasWordTimestamps: true,
         };
       }
     }
 
-    // Clean any remaining stray tags
-    const cleanText = rawText.replace(/<[^>]+>|\([^)]+\)/g, '').trim();
+    // Strip only stray LRC time tags, preserving legitimate parenthetical vocals like "(yeah)"
+    const cleanText = rawText.replace(STRAY_TIME_TAG_REGEX, '').trim();
     const charCount = cleanText.length || 1;
 
-    // Calculate natural singing duration
     let lineDuration: number;
     let endTime: number;
 
     if (nextLine) {
       const gap = Math.max(0.2, nextLine.time - startTime);
       if (gap > 5.5) {
-        // Interlude / long rest: vocals finish naturally before the next line
         lineDuration = Math.min(gap - 0.6, Math.max(1.4, charCount * 0.20 + 0.6));
         endTime = startTime + lineDuration;
       } else {
-        // Normal continuous phrase: leave ~8% breath room before next line
         lineDuration = gap * 0.92;
         endTime = startTime + lineDuration;
       }
@@ -120,60 +200,7 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
       endTime = startTime + lineDuration;
     }
 
-    // Split into words and spaces
-    const tokens = cleanText.split(/(\s+)/);
-    const words: KaraokeWord[] = [];
-
-    // Calculate proportional weights for each word token
-    let totalWeight = 0;
-    const tokenWeights: number[] = [];
-
-    for (const token of tokens) {
-      if (!token) continue;
-      const isSpace = /^\s+$/.test(token);
-      if (isSpace) {
-        const spaceWeight = 0.15;
-        tokenWeights.push(spaceWeight);
-        totalWeight += spaceWeight;
-      } else {
-        const cleanLen = token.replace(/[^\w]/g, '').length || 1;
-        let weight = Math.max(1, cleanLen);
-
-        // Subtle punctuation pause bonus
-        if (/[,;\-]/.test(token)) {
-          weight += 0.8;
-        } else if (/[.!?\)]/.test(token)) {
-          weight += 1.4;
-        }
-
-        tokenWeights.push(weight);
-        totalWeight += weight;
-      }
-    }
-
-    if (totalWeight <= 0) totalWeight = 1;
-
-    let accumulatedTime = startTime;
-    let tokenIdx = 0;
-
-    for (const token of tokens) {
-      if (!token) continue;
-      const weight = tokenWeights[tokenIdx] || 1;
-      const tokenDuration = (weight / totalWeight) * lineDuration;
-      const wordStart = accumulatedTime;
-      const wordEnd = accumulatedTime + tokenDuration;
-      const isSpace = /^\s+$/.test(token);
-
-      words.push({
-        text: token,
-        isSpace,
-        startSec: wordStart,
-        endSec: wordEnd,
-      });
-
-      accumulatedTime = wordEnd;
-      tokenIdx++;
-    }
+    const words = buildEstimatedWords(cleanText, startTime, lineDuration);
 
     return {
       id: idx,
@@ -190,7 +217,10 @@ export function processLyricsForKaraoke(lines: LyricLine[]): ProcessedKaraokeLin
  * Fast binary search to find the active lyric index in O(log N) time
  * Checks within a 60ms anticipatory window for instant visual snap
  */
-export function findActiveLineIndex(lines: ProcessedKaraokeLine[], currentTime: number): number {
+export function findActiveLineIndex(
+  lines: readonly Pick<LyricLine, 'time'>[],
+  currentTime: number
+): number {
   if (!lines || lines.length === 0) return -1;
 
   let low = 0;
@@ -199,7 +229,7 @@ export function findActiveLineIndex(lines: ProcessedKaraokeLine[], currentTime: 
 
   while (low <= high) {
     const mid = (low + high) >> 1;
-    if (lines[mid].time <= currentTime + 0.06) {
+    if (lines[mid].time <= currentTime + LYRIC_SYNC_LOOKAHEAD) {
       result = mid;
       low = mid + 1;
     } else {
@@ -266,12 +296,13 @@ export function getInstrumentalSegment(
     Number.isFinite(duration) && duration > 0 ? duration : 0;
   const firstLine = lines[0];
 
-  if (currentTime < firstLine.time && firstLine.time >= MIN_INTRO_INSTRUMENTAL) {
-    return { start: 0, end: firstLine.time };
-  }
-
   const activeIndex = findActiveLineIndex(lines, currentTime);
-  if (activeIndex < 0) return null;
+  if (activeIndex < 0) {
+    if (firstLine.time >= MIN_INTRO_INSTRUMENTAL) {
+      return { start: 0, end: firstLine.time };
+    }
+    return null;
+  }
 
   const activeLine = lines[activeIndex];
   const nextLine = lines[activeIndex + 1];

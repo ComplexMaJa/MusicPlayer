@@ -19,6 +19,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useLibraryStore } from '../stores/useLibraryStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { FormatBadge } from './FormatBadge';
 import { ProgressBar } from './ProgressBar';
 import { VolumeSlider } from './VolumeSlider';
@@ -84,21 +85,57 @@ const NowPlayingDrawerContent: React.FC = () => {
   );
 
   const toggleFavorite = useLibraryStore((state) => state.toggleFavorite);
+  const reducedMotion = useSettingsStore((state) => state.settings.reducedMotion);
   const [activeTab, setActiveTab] = useState<'artwork' | 'lyrics'>('artwork');
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
+  const [artworkError, setArtworkError] = useState(false);
   const activeLyricRef = useRef<HTMLDivElement | null>(null);
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
   const providerMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setArtworkError(false);
+  }, [currentTrack?.id, currentTrack?.artworkPath]);
+
+  useEffect(() => {
+    if (activeTab !== 'lyrics') {
+      setIsProviderMenuOpen(false);
+    }
+  }, [activeTab]);
+
+  // Close lyric provider dropdown on outside click or Escape
+  useEffect(() => {
+    if (!isProviderMenuOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (providerMenuRef.current && !providerMenuRef.current.contains(e.target as Node)) {
+        setIsProviderMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsProviderMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isProviderMenuOpen]);
 
   // Auto-scroll active lyric into center view smoothly
   useEffect(() => {
     if (activeTab === 'lyrics' && activeLyricRef.current && lyricsContainerRef.current) {
       activeLyricRef.current.scrollIntoView({
-        behavior: 'smooth',
+        behavior: reducedMotion ? 'auto' : 'smooth',
         block: 'center',
       });
     }
-  }, [activeLyricIndex, activeTab]);
+  }, [activeLyricIndex, activeTab, reducedMotion]);
 
   if (!isNowPlayingDrawerOpen || !currentTrack) return null;
 
@@ -110,6 +147,7 @@ const NowPlayingDrawerContent: React.FC = () => {
       <div className="flex items-center justify-between pb-3 border-b border-[#141414]">
         <div className="flex items-center gap-1 bg-[#101010] p-0.5 rounded-lg border border-[#1E1E1E]">
           <button
+            type="button"
             onClick={() => setActiveTab('artwork')}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
               activeTab === 'artwork'
@@ -122,6 +160,7 @@ const NowPlayingDrawerContent: React.FC = () => {
             <span>Artwork</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('lyrics')}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer relative ${
               activeTab === 'lyrics'
@@ -143,16 +182,18 @@ const NowPlayingDrawerContent: React.FC = () => {
 
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={toggleCinemaMode}
-            className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Expand to Fullscreen Cinema Mode"
             aria-label="Open cinema mode"
           >
             <Maximize2 className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => setNowPlayingDrawerOpen(false)}
-            className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90"
+            className="text-[#666666] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Close panel"
             aria-label="Close now playing panel"
           >
@@ -166,10 +207,11 @@ const NowPlayingDrawerContent: React.FC = () => {
         {activeTab === 'artwork' ? (
           /* Artwork View */
           <div className="w-64 h-64 rounded-2xl overflow-hidden bg-[#0A0A0A] border border-[#1A1A1A] shadow-2xl relative group hover:border-[#2E2E2E] transition-all duration-300">
-            {currentTrack.artworkPath ? (
+            {currentTrack.artworkPath && !artworkError ? (
               <img
                 src={currentTrack.artworkPath}
                 alt={currentTrack.title}
+                onError={() => setArtworkError(true)}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
               />
             ) : (
@@ -194,10 +236,13 @@ const NowPlayingDrawerContent: React.FC = () => {
                 <span>SYNCHRONIZED</span>
               </div>
               <button
-                onClick={() => setIsProviderMenuOpen(!isProviderMenuOpen)}
+                type="button"
+                onClick={() => setIsProviderMenuOpen((prev) => !prev)}
                 className="text-[9px] font-mono tracking-wider text-[#8A8A95] hover:text-white bg-[#141418] hover:bg-[#202028] px-2 py-0.5 rounded-md border border-[#252530] uppercase flex items-center gap-1 transition-all cursor-pointer"
                 title="Select Lyric Provider"
                 aria-label="Select lyrics provider"
+                aria-expanded={isProviderMenuOpen}
+                aria-haspopup="menu"
               >
                 <span>
                   {activeLyricProvider !== 'auto'
@@ -210,12 +255,18 @@ const NowPlayingDrawerContent: React.FC = () => {
               </button>
 
               {isProviderMenuOpen && (
-                <div className="absolute right-0 top-7 w-44 bg-[#101014] border border-[#262632] rounded-xl shadow-2xl py-1 z-50 animate-fadeIn backdrop-blur-xl">
+                <div
+                  role="menu"
+                  aria-label="Lyrics source options"
+                  className="absolute right-0 top-7 w-44 bg-[#101014] border border-[#262632] rounded-xl shadow-2xl py-1 z-50 animate-fadeIn backdrop-blur-xl"
+                >
                   {(['auto', 'online', 'embedded', 'local'] as const).map((prov) => (
                     <button
+                      type="button"
+                      role="menuitem"
                       key={prov}
                       onClick={() => {
-                        setLyricProvider(prov);
+                        void setLyricProvider(prov);
                         setIsProviderMenuOpen(false);
                       }}
                       className={`w-full px-2.5 py-1.5 text-left text-[11px] flex items-center justify-between transition-colors cursor-pointer ${
@@ -260,7 +311,7 @@ const NowPlayingDrawerContent: React.FC = () => {
                   const isPast = activeLyricIndex !== -1 && idx < activeLyricIndex;
                   return (
                     <div
-                      key={idx}
+                      key={`${line.time}-${idx}`}
                       ref={isActive ? activeLyricRef : null}
                       onClick={() => seek(line.time)}
                       className={`py-1.5 px-3 rounded-xl transition-all duration-300 cursor-pointer font-medium select-none ${
@@ -304,7 +355,8 @@ const NowPlayingDrawerContent: React.FC = () => {
             <p className="text-[10px] text-[#666666] truncate mt-0.5">{currentTrack.album}</p>
           </div>
           <button
-            onClick={() => toggleFavorite(currentTrack.id)}
+            type="button"
+            onClick={() => void toggleFavorite(currentTrack.id)}
             className="text-[#666666] hover:text-accent p-2 rounded-full hover:bg-[#151515] transition-all duration-200 active:scale-125 shrink-0 group/fav cursor-pointer"
             title="Favorite"
             aria-label={currentTrack.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
@@ -338,6 +390,7 @@ const NowPlayingDrawerContent: React.FC = () => {
         {/* Playback Controls */}
         <div className="flex items-center gap-5 my-1">
           <button
+            type="button"
             onClick={toggleShuffle}
             className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
             style={
@@ -354,6 +407,7 @@ const NowPlayingDrawerContent: React.FC = () => {
             <Shuffle className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={previousTrack}
             className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Previous"
@@ -362,6 +416,7 @@ const NowPlayingDrawerContent: React.FC = () => {
             <SkipBack className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={togglePlay}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-lg"
             style={{
@@ -378,6 +433,7 @@ const NowPlayingDrawerContent: React.FC = () => {
             )}
           </button>
           <button
+            type="button"
             onClick={nextTrack}
             className="text-[#EDEDED] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
             title="Next"
@@ -386,6 +442,7 @@ const NowPlayingDrawerContent: React.FC = () => {
             <SkipForward className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={toggleRepeatMode}
             className="p-1.5 rounded-full transition-all duration-200 hover:scale-110 active:scale-90 cursor-pointer"
             style={
@@ -426,4 +483,3 @@ export const NowPlayingDrawer: React.FC = () => {
 
   return <NowPlayingDrawerContent />;
 };
-

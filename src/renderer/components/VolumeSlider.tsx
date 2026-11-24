@@ -16,10 +16,13 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
   onToggleMute,
   className = '',
 }) => {
-  const currentVal = isMuted ? 0 : volume;
+  const safeVolume = Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.8;
+  const currentVal = isMuted ? 0 : safeVolume;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onVolumeChange(parseFloat(e.target.value));
+    const parsed = parseFloat(e.target.value);
+    if (!Number.isFinite(parsed)) return;
+    onVolumeChange(Math.max(0, Math.min(1, parsed)));
   };
 
   const Icon = isMuted || currentVal === 0 ? VolumeX : currentVal < 0.5 ? Volume1 : Volume2;
@@ -27,6 +30,7 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <button
+        type="button"
         onClick={onToggleMute}
         className="text-[#A3A3A3] hover:text-white p-1.5 rounded-full hover:bg-[#151515] transition-all duration-150 hover:scale-110 active:scale-90 cursor-pointer"
         title={isMuted ? 'Unmute' : 'Mute'}
@@ -35,11 +39,11 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
         <Icon className="w-4 h-4" />
       </button>
       <div className="relative w-20 flex items-center h-4 group cursor-pointer rounded-full focus-within:ring-2 focus-within:ring-[var(--accent-color,#FF2E55)] focus-within:ring-offset-2 focus-within:ring-offset-[#050505]">
-        <div className="w-full h-1 group-hover:h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden transition-all duration-150">
+        <div className="w-full h-1 group-hover:h-1.5 bg-[#1A1A1A] rounded-full overflow-hidden transition-[height] duration-150">
           <div
-            className="h-full bg-[#EDEDED] transition-all duration-150"
+            className="h-full w-full origin-left will-change-transform"
             style={{
-              width: `${currentVal * 100}%`,
+              transform: `scaleX(${currentVal})`,
               backgroundColor: 'var(--accent-color, #FF2E55)',
             }}
           />

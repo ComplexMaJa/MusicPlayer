@@ -1,4 +1,5 @@
 import React from 'react';
+import { colorWithAlpha } from '../utils/colorExtractor';
 
 interface InstrumentalDotsProps {
   active?: boolean;
@@ -17,6 +18,8 @@ export const InstrumentalDots: React.FC<InstrumentalDotsProps> = ({
   accentColor,
   className = '',
 }) => {
+  const safeGlow = colorWithAlpha(accentColor, 0.85);
+
   return (
     <span
       aria-hidden="true"
@@ -30,7 +33,7 @@ export const InstrumentalDots: React.FC<InstrumentalDotsProps> = ({
           className="instrumental-dot h-2.5 w-2.5 rounded-full bg-white"
           style={{
             animationDelay: `${index * 0.18}s`,
-            boxShadow: `0 0 12px ${accentColor}, 0 0 24px ${accentColor}`,
+            boxShadow: `0 0 12px ${safeGlow}, 0 0 24px ${safeGlow}`,
           }}
         />
       ))}
